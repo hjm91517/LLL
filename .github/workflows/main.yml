@@ -1,0 +1,160 @@
+name: Build Dylib
+
+on:
+  push:
+    branches: [ main, master, dev ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      archs:
+        description: '目标架构（空格分隔）'
+        default: 'arm64 arm64e'
+      deployment_target:
+        description: 'iOS 最低版本'
+        default: '12.0'
+      package_scheme:
+        description: 'rootful / rootless / roothide'
+        default: 'rootful'
+      sdk_name:
+        description: 'theos/sdks 里的 SDK 目录名'
+        default: 'iPhoneOS16.5.sdk'
+
+permissions:
+  contents: write
+
+env:
+  THEOS: ${{ github.workspace }}/.theos
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Resolve config
+        run: |
+          echo "ARCHS=${{ inputs.archs || 'arm64 arm64e' }}"                       >> $GITHUB_ENV
+          echo "IOS_DT=${{ inputs.deployment_target || '12.0' }}"                  >> $GITHUB_ENV
+          echo "PKG_SCHEME=${{ inputs.package_scheme || 'rootful' }}"              >> $GITHUB_ENV
+          echo "SDK_NAME=${{ inputs.sdk_name || 'iPhoneOS16.5.sdk' }}"             >> $GITHUB_ENV
+          echo "PKG_NAME=$(basename $GITHUB_REPOSITORY)"                          >> $GITHUB_ENV
+
+      - name: Install host deps
+        run: |
+          brew update >/dev/null 2>&1 || true
+          brew install ldid xz dpkg || brew upgrade ldid xz dpkg
+          echo "ldid: $(command -v ldid)"
+          ldid -v 2>&1 | head -n 2 || true
+
+      - name: Cache Theos + SDKs
+        id: theos-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.theos
+          key: theos-${{ runner.os }}-${{ runner.arch }}-v3
+          restore-keys: |
+            theos-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install Theos
+        if: steps.theos-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          git clone --recursive --depth 1 https://github.com/theos/theos.git "$THEOS"
+          mkdir -p "$THEOS/sdks"
+          curl -fsSL https://github.com/theos/sdks/archive/refs/heads/master.zip -o /tmp/sdks.zip
+          unzip -q /tmp/sdks.zip -d /tmp
+          if [ -d "/tmp/sdks-master/$SDK_NAME" ]; then
+            cp -R "/tmp/sdks-master/$SDK_NAME" "$THEOS/sdks/"
+          else
+            echo "!! 没找到 $SDK_NAME，可用列表："
+            ls /tmp/sdks-master | grep '\.sdk$'
+            cp -R /tmp/sdks-master/iPhoneOS1*.sdk "$THEOS/sdks/" 2>/dev/null || true
+          fi
+          ls -1 "$THEOS/sdks"
+          test -f "$THEOS/makefiles/common.mk"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          EXTRA=""
+          case "$PKG_SCHEME" in
+            rootless) EXTRA="THEOS_PACKAGE_SCHEME=rootless" ;;
+            roothide) EXTRA="THEOS_PACKAGE_SCHEME=roothide" ;;
+          esac
+
+          if [ -f Makefile ] || [ -f makefile ]; then
+            echo ">>> 检测到 Theos 项目"
+            make clean                       || true
+            make all FINALPACKAGE=1 DEBUG=0 ARCHS="$ARCHS" \
+                 TARGET="iphone:clang:latest:$IOS_DT" $EXTRA
+            make package FINALPACKAGE=1 DEBUG=0 ARCHS="$ARCHS" \
+                 TARGET="iphone:clang:latest:$IOS_DT" $EXTRA || \
+              echo "!! package 阶段跳过（可能没配 control 文件）"
+          else
+            echo ">>> 无 Makefile，走 clang 直编兜底"
+            SDKPATH=$(xcrun --sdk iphoneos --show-sdk-path)
+            SRC=$(find . \( -name '*.m' -o -name '*.mm' -o -name '*.c' -o -name '*.cpp' \) \
+                  -not -path './.theos/*' -not -path './dist/*' | tr '\n' ' ')
+            test -n "$SRC" || { echo "!! 一个源文件都没找到"; exit 1; }
+            mkdir -p dist
+            ARCHFLAGS=""
+            for a in $ARCHS; do ARCHFLAGS="$ARCHFLAGS -arch $a"; done
+            xcrun --sdk iphoneos clang $ARCHFLAGS \
+              -miphoneos-version-min="$IOS_DT" \
+              -isysroot "$SDKPATH" \
+              -dynamiclib -fobjc-arc -fmodules -O2 \
+              -undefined dynamic_lookup \
+              -install_name "@executable_path/$PKG_NAME.dylib" \
+              -o "dist/$PKG_NAME.dylib" $SRC
+          fi
+
+      - name: Collect, sign, inspect
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ENT=""
+          [ -f ".github/entitlements.plist" ] && ENT=".github/entitlements.plist"
+
+          find . -name '*.dylib' -not -path './dist/*' -not -path './.git/*' -print0 |
+          while IFS= read -r -d '' f; do
+            out="dist/$(basename "$f")"
+            cp -f "$f" "$out"
+            if [ -n "$ENT" ]; then ldid -S"$ENT" "$out"; else ldid -S "$out"; fi
+            echo "== $out"
+            lipo -info "$out" || true
+            size "$out" 2>/dev/null || true
+          done
+
+          # 顺带把 deb 也收进来
+          find . -name '*.deb' -not -path './.git/*' -exec cp -f {} dist/ \; 2>/dev/null || true
+
+          ls -la dist
+          test "$(ls -A dist)" || { echo "!! dist 是空的，构建没产出二进制"; exit 1; }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dylib-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Release on tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**
+          generate_release_notes: true
