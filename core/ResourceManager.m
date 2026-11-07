@@ -497,7 +497,7 @@ static NSUInteger lllCountFiles(NSString *dir) {
             NSString *name = (i < names.count) ? names[i] : [(NSString *)paths[i] lastPathComponent];
             NSString *srcRoot = resolvePackRoot(paths[i], 3);
             if (![srcRoot isEqualToString:paths[i]]) {
-                lllLog(@"包根下钻: %@ -> %@", paths[i].lastPathComponent, srcRoot.lastPathComponent);
+                lllLog(@"包根下钻: %@ -> %@", [(NSString *)paths[i] lastPathComponent], srcRoot.lastPathComponent);
             }
             BOOL any = NO;
 
