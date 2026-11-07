@@ -307,6 +307,16 @@ static void cleanCache(NSString *dir, NSRegularExpression *re, NSFileManager *fm
     }
 }
 
+
+static NSUInteger lllCountFiles(NSString *dir) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSDirectoryEnumerator *e = [fm enumeratorAtPath:dir];
+    if (!e) return 0;
+    NSUInteger n = 0;
+    for (NSString *x in e) { (void)x; n++; }
+    return n;
+}
+
 #pragma mark - ResourceManager
 
 @implementation ResourceManager
@@ -317,39 +327,54 @@ static void cleanCache(NSString *dir, NSRegularExpression *re, NSFileManager *fm
 
 + (void)injectMats:(NSArray*)paths names:(NSArray*)names cb:(void(^)(NSArray*,NSArray*))cb {
     dispatch_async(g_fileQueue(), ^{
-        NSString *t = targetPath();
+        NSArray<NSString*> *targets = injectionTargetDirs();
         NSMutableArray *ok = [NSMutableArray new], *fail = [NSMutableArray new];
 
-        // 双保险：除了自建包，再镜像一份到游戏已经加载过的旧式补丁目录
-        // （v_ 前缀 / *texture* / *FirstPatch*）。默认开，可在设置里关。
+        lllLog(@"=== 注入开始：%lu 个源，%lu 个目标 ===",
+               (unsigned long)paths.count, (unsigned long)targets.count);
+        lllLogDirectorySnapshot();
+
         NSNumber *mirrorObj = [[NSUserDefaults standardUserDefaults] objectForKey:@"LLL.mirrorLegacy"];
         BOOL doMirror = mirrorObj ? mirrorObj.boolValue : YES;
         NSArray<NSString*> *mirrors = doMirror ? legacyPatchDirs() : @[];
-        if (mirrors.count) NSLog(@"[LLL] 镜像目标 %lu 个", (unsigned long)mirrors.count);
 
         for (NSUInteger i = 0; i < paths.count; i++) {
             NSString *name = (i < names.count) ? names[i] : [(NSString *)paths[i] lastPathComponent];
-            BOOL good = mergeDir(paths[i], t);
+            BOOL any = NO;
 
-            if (good && mirrors.count) {
+            for (NSString *t in targets) {
+                lllEnsurePackManifestAt(t);
+                BOOL r = mergeDir(paths[i], t);
+                if (r) any = YES;
+                lllLog(@"   -> %@  %@  (%lu files)", t, r ? @"OK" : @"FAIL",
+                       (unsigned long)lllCountFiles(t));
+            }
+
+            if (any && mirrors.count) {
                 for (NSString *m in mirrors) {
-                    if ([m isEqualToString:t]) continue;
-                    mergeDir(paths[i], m);          // 镜像失败不影响主流程
+                    mergeDir(paths[i], m);
+                    lllLog(@"   ~> 镜像 %@", m.lastPathComponent);
                 }
             }
 
-            if (good) [ok addObject:name];
-            else      [fail addObject:name];
+            if (any) [ok addObject:name];
+            else     [fail addObject:name];
         }
 
-        // 只在全部成功时才叠打击特效，避免半包状态
-        if (fail.count == 0 && ok.count > 0) [EffectInjector mergeInto:t];
+        if (ok.count > 0 && targets.count > 0) {
+            [EffectInjector mergeInto:targets.firstObject];
+        }
 
-        // 3.10 关键一步：保证 LLL_inject 有合法 manifest，并注册到 global_resource_packs.json
-        // 不注册的话，文件写得再对，游戏也不会加载这个包。
-        if (ok.count > 0) {
-            lllEnsureInjectPackManifest();
-            lllRegisterGlobalPack();
+        BOOL reg = lllRegisterGlobalPack();
+        lllLog(@"注册 global_resource_packs.json：%@", reg ? @"成功" : @"失败");
+        for (NSString *p in globalPackJSONCandidates()) {
+            if ([[NSFileManager defaultManager] fileExistsAtPath:p]) {
+                NSString *c = [NSString stringWithContentsOfFile:p
+                                                        encoding:NSUTF8StringEncoding
+                                                           error:nil];
+                lllLog(@"   %@ => %@", p.lastPathComponent,
+                       c.length > 240 ? [c substringToIndex:240] : (c ?: @""));
+            }
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -401,7 +426,13 @@ static void cleanCache(NSString *dir, NSRegularExpression *re, NSFileManager *fm
 + (void)cleanTarget:(void(^)(BOOL))cb {
     dispatch_async(g_fileQueue(), ^{
         // 我们自己的包目录，manifest 必须留着，否则包就废了
-        BOOL ok = cleanDir(targetPath(), @"manifest.json");
+        BOOL ok = YES;
+        for (NSString *t in injectionTargetDirs()) {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            if (![fm fileExistsAtPath:t]) continue;
+            if (!cleanDir(t, @"manifest.json")) ok = NO;
+            lllLog(@"清理 %@ -> %lu files", t, (unsigned long)lllCountFiles(t));
+        }
         dispatch_async(dispatch_get_main_queue(), ^{ if (cb) cb(ok); });
     });
 }

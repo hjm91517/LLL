@@ -32,28 +32,7 @@ static NSString *LLLDocsDir(void) {
     return d ?: NSHomeDirectory();
 }
 
-static void LLLLog(NSString *fmt, ...) {
-    @try {
-        va_list ap;
-        va_start(ap, fmt);
-        NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:ap];
-        va_end(ap);
-
-        NSDateFormatter *f = [NSDateFormatter new];
-        f.dateFormat = @"HH:mm:ss.SSS";
-        NSString *line = [NSString stringWithFormat:@"[%@] %@\n", [f stringFromDate:[NSDate date]], msg];
-
-        NSString *p = [LLLDocsDir() stringByAppendingPathComponent:@"LLL_runtime.log"];
-        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:p];
-        if (!fh) {
-            [line writeToFile:p atomically:YES encoding:NSUTF8StringEncoding error:nil];
-            return;
-        }
-        [fh seekToEndOfFile];
-        [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-        [fh closeFile];
-    } @catch (__unused NSException *e) { }
-}
+#define LLLLog(...) lllLog(__VA_ARGS__)
 
 static BOOL LLLFileExists(NSString *name) {
     return [[NSFileManager defaultManager]
@@ -223,6 +202,8 @@ static void LLLInit(void) {
                 return;
             }
             if (!CrashLoopGuard()) return;
+
+            lllLogDirectorySnapshot();
 
             // 实验开关：只有手动放了 LLL_PATCH_BUJI 才动手
             if (LLLFileExists(@"LLL_PATCH_BUJI")) {

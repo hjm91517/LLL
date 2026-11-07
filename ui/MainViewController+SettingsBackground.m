@@ -157,15 +157,19 @@
     diag.textColor = [UIColor colorWithWhite:0.66 alpha:1.0];
     NSArray<NSString*> *mcpTargets = findAllMCPTargets();
     NSArray<NSString*> *legacyDirs = detectLegacyPatchDirs();
+    NSArray<NSString*> *injTargets = injectionTargetDirs();
     BOOL registered = lllInjectPackRegistered();
     diag.text = [NSString stringWithFormat:
                  @"游戏根目录\n%@\n\n"
                  @"注入包\n%@\n%@\n\n"
+                 @"注入目标 %lu 个\n%@\n\n"
                  @"旧式补丁目录 %lu 个\n%@\n\n"
                  @"MCP 目标 %lu 个\n%@",
                  neteaseGameBasePath(),
                  targetPathDisplayName(),
                  registered ? @"✔ 已注册 global_resource_packs" : @"✘ 未注册（下次注入时写入）",
+                 (unsigned long)injTargets.count,
+                 [[injTargets valueForKey:@"lastPathComponent"] componentsJoinedByString:@", "],
                  (unsigned long)legacyDirs.count,
                  legacyDirs.count ? [[legacyDirs valueForKey:@"lastPathComponent"] componentsJoinedByString:@"\n"] : @"（无）",
                  (unsigned long)mcpTargets.count,

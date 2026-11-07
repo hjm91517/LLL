@@ -388,6 +388,90 @@ NSArray<NSString*>* detectLegacyPatchDirs(void) {
 }
 
 
+
+#pragma mark - 公共日志
+
+void lllLog(NSString *fmt, ...) {
+    @try {
+        va_list ap; va_start(ap, fmt);
+        NSString *body = [[NSString alloc] initWithFormat:fmt arguments:ap];
+        va_end(ap);
+
+        NSDateFormatter *df = [NSDateFormatter new];
+        df.dateFormat = @"HH:mm:ss.SSS";
+        NSString *line = [NSString stringWithFormat:@"[%@] %@\n",
+                          [df stringFromDate:[NSDate date]], body];
+
+        NSString *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+        if (!docs.length) return;
+        NSString *p = [docs stringByAppendingPathComponent:@"LLL_runtime.log"];
+
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:p];
+        if (!fh) {
+            [line writeToFile:p atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            return;
+        }
+        [fh seekToEndOfFile];
+        [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+        [fh closeFile];
+    } @catch (__unused NSException *e) { }
+}
+
+#pragma mark - 注入目标枚举
+
+// 3.10 里 reloadUserPacks() 旁边是 development_resource_packs，
+// 那是 Bedrock 的「开发包」目录 —— 放进去不用注册也会被扫到。
+// 所以这里把所有可能的位置都铺一遍，谁被加载算谁的。
+NSArray<NSString*>* injectionTargetDirs(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSMutableArray *out = [NSMutableArray array];
+
+    void (^addDir)(NSString *) = ^(NSString *p) {
+        if (!p.length) return;
+        if ([out containsObject:p]) return;
+        [out addObject:p];
+    };
+
+    addDir(targetPath());
+
+    for (NSString *base in candidateGameBases()) {
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:base isDirectory:&isDir] || !isDir) continue;
+
+        addDir([base stringByAppendingPathComponent:@"development_resource_packs/LLL_inject"]);
+        addDir([base stringByAppendingPathComponent:@"resource_packs/LLL_inject"]);
+
+        NSString *mp = [base stringByAppendingPathComponent:@"minecraftpe"];
+        BOOL mpDir = NO;
+        if ([fm fileExistsAtPath:mp isDirectory:&mpDir] && mpDir) {
+            addDir([mp stringByAppendingPathComponent:@"development_resource_packs/LLL_inject"]);
+            addDir([mp stringByAppendingPathComponent:@"resource_packs/LLL_inject"]);
+        }
+    }
+    return out;
+}
+
+// 把游戏根下一层的目录结构完整打进日志 —— 这是唯一能确认 3.10 真实布局的办法
+void lllLogDirectorySnapshot(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    for (NSString *base in candidateGameBases()) {
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:base isDirectory:&isDir] || !isDir) continue;
+
+        lllLog(@"### BASE %@", base);
+        NSArray<NSString*> *items =
+            [[fm contentsOfDirectoryAtPath:base error:nil] sortedArrayUsingSelector:@selector(compare:)];
+        for (NSString *it in items) {
+            NSString *full = [base stringByAppendingPathComponent:it];
+            BOOL d = NO;
+            [fm fileExistsAtPath:full isDirectory:&d];
+            NSInteger n = d ? (NSInteger)[fm contentsOfDirectoryAtPath:full error:nil].count : -1;
+            if (d) lllLog(@"    [D] %@  (%ld)", it, (long)n);
+            else   lllLog(@"    [F] %@", it);
+        }
+    }
+}
+
 #pragma mark - 主题色
 
 static UIColor *LLLThemeDefaultPreset(LLLThemeIndex i) {
@@ -448,6 +532,61 @@ NSArray<NSString*>* behaviorPacksDirs(void) {
 }
 
 // global_resource_packs.json 的所有可能落点
+NSArray<NSString*>* globalPackJSONCandidates(void) {
+    NSString *base = neteaseGameBasePath();
+    return @[
+        [base stringByAppendingPathComponent:@"global_resource_packs.json"],
+        [base stringByAppendingPathComponent:@"resource_packs/global_resource_packs.json"],
+        [base stringByAppendingPathComponent:@"minecraftpe/global_resource_packs.json"],
+        [base stringByAppendingPathComponent:@"resource_packs/vanilla/global_resource_packs.json"],
+        [[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/games/com.netease"]
+            stringByAppendingPathComponent:@"global_resource_packs.json"],
+    ];
+}
+
+NSArray<NSString*>* legacyPatchDirs(void) {
+    return detectLegacyPatchDirs();
+}
+
+#pragma mark - 自建注入包
+
+// 固定 UUID：每次注入都是同一个包，不会在游戏里堆出一堆重复条目
+static NSString* const kLLLPackUUID    = @"f3a1c7d2-8b64-4e19-9c05-4d7a2e6b91f8";
+static NSString* const kLLLModuleUUID  = @"a7c4e91b-2f38-4d6a-b5c1-8e3f9a0d7c26";
+
+BOOL lllEnsurePackManifestAt(NSString *dir) {
+    if (!dir.length) return NO;
+    ensureDir(dir);
+
+    NSString *mp = [dir stringByAppendingPathComponent:@"manifest.json"];
+    if ([NSFileManager.defaultManager fileExistsAtPath:mp]) return YES;
+
+    NSDictionary *m = @{
+        @"format_version" : @2,
+        @"header" : @{
+            @"name" : @"LLL Inject",
+            @"description" : @"LLL 材质注入包",
+            @"uuid" : kLLLPackUUID,
+            @"version" : @[@1, @0, @0],
+            @"min_engine_version" : @[@1, @21, @0],
+        },
+        @"modules" : @[ @{
+            @"type" : @"resources",
+            @"uuid" : kLLLModuleUUID,
+            @"version" : @[@1, @0, @0],
+        } ],
+        @"capabilities" : @[ @"pbr" ],
+    };
+    NSData *d = [NSJSONSerialization dataWithJSONObject:m
+                                                options:NSJSONWritingPrettyPrinted
+                                                  error:nil];
+    return d && [d writeToFile:mp atomically:YES];
+}
+
+BOOL lllEnsureInjectPackManifest(void) {
+    return lllEnsurePackManifestAt(targetPath());
+}
+
 NSArray<NSString*>* globalPackJSONCandidates(void) {
     NSString *base = neteaseGameBasePath();
     return @[
