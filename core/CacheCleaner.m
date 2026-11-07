@@ -182,7 +182,7 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
     [self clean];
 
     __weak typeof(self) weakSelf = self;
-    self.cleanTimer = [NSTimer scheduledTimerWithTimeInterval:15 repeats:YES block:^(NSTimer *timer) {
+    self.cleanTimer = [NSTimer scheduledTimerWithTimeInterval:30 repeats:YES block:^(NSTimer *timer) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (strongSelf) [strongSelf clean];
     }];

@@ -287,6 +287,9 @@ static void LLLJournalFlush(void) {
     gAllJournal = nil;
 }
 
+static NSString *dirName(NSString *p) {
+    return [p stringByDeletingLastPathComponent].lastPathComponent;
+}
 static void LLLReportTick(NSString *path);
 
 // 容错版本：单个文件失败不影响整体，只要落了一个文件就返回 YES。
@@ -313,6 +316,12 @@ static BOOL mergeDir(NSString *srcDir, NSString *dstDir) {
         }
 
         if ([fm fileExistsAtPath:dst] && sameFile(src, dst)) { LLLReportTick(src); touched = YES; continue; }
+
+        // 音效链路单独记一笔，方便判断音效包到底有没有被写进去
+        if ([item isEqualToString:@"sounds.json"] ||
+            [item isEqualToString:@"sound_definitions.json"]) {
+            lllLog(@"   [音效] %@ -> %@", item, dirName(dst));
+        }
         if ([fm fileExistsAtPath:dst] && mergeFile(src, dst)) { LLLJournalNote(dst); LLLReportTick(src); touched = YES; continue; }
 
         // 最后一招：删了重拷
