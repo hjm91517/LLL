@@ -586,57 +586,6 @@ BOOL lllEnsurePackManifestAt(NSString *dir) {
 BOOL lllEnsureInjectPackManifest(void) {
     return lllEnsurePackManifestAt(targetPath());
 }
-
-NSArray<NSString*>* globalPackJSONCandidates(void) {
-    NSString *base = neteaseGameBasePath();
-    return @[
-        [base stringByAppendingPathComponent:@"global_resource_packs.json"],
-        [base stringByAppendingPathComponent:@"resource_packs/global_resource_packs.json"],
-        [base stringByAppendingPathComponent:@"minecraftpe/global_resource_packs.json"],
-        [base stringByAppendingPathComponent:@"resource_packs/vanilla/global_resource_packs.json"],
-        [[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/games/com.netease"]
-            stringByAppendingPathComponent:@"global_resource_packs.json"],
-    ];
-}
-
-NSArray<NSString*>* legacyPatchDirs(void) {
-    return detectLegacyPatchDirs();
-}
-
-#pragma mark - 自建注入包
-
-// 固定 UUID：每次注入都是同一个包，不会在游戏里堆出一堆重复条目
-static NSString* const kLLLPackUUID    = @"f3a1c7d2-8b64-4e19-9c05-4d7a2e6b91f8";
-static NSString* const kLLLModuleUUID  = @"a7c4e91b-2f38-4d6a-b5c1-8e3f9a0d7c26";
-
-BOOL lllEnsureInjectPackManifest(void) {
-    NSString *dir = targetPath();
-    ensureDir(dir);
-
-    NSString *mp = [dir stringByAppendingPathComponent:@"manifest.json"];
-    if ([NSFileManager.defaultManager fileExistsAtPath:mp]) return YES;
-
-    NSDictionary *m = @{
-        @"format_version" : @2,
-        @"header" : @{
-            @"name" : @"LLL Inject",
-            @"description" : @"LLL 材质注入包",
-            @"uuid" : kLLLPackUUID,
-            @"version" : @[@1, @0, @0],
-            @"min_engine_version" : @[@1, @21, @0],
-        },
-        @"modules" : @[ @{
-            @"type" : @"resources",
-            @"uuid" : kLLLModuleUUID,
-            @"version" : @[@1, @0, @0],
-        } ],
-    };
-    NSData *d = [NSJSONSerialization dataWithJSONObject:m
-                                                options:NSJSONWritingPrettyPrinted
-                                                  error:nil];
-    return d && [d writeToFile:mp atomically:YES];
-}
-
 BOOL lllInjectPackRegistered(void) {
     for (NSString *p in globalPackJSONCandidates()) {
         NSData *d = [NSData dataWithContentsOfFile:p];
