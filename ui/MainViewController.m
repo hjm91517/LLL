@@ -28,6 +28,73 @@ static void lllReload(UITableView *tv) {
     }];
 }
 
+
+#pragma mark - 声压条
+
+@interface LLLBarsView : UIView
+@property (nonatomic, strong) NSMutableArray<NSNumber *> *levels;
+@end
+
+@implementation LLLBarsView
+- (instancetype)initWithFrame:(CGRect)f {
+    if (self = [super initWithFrame:f]) {
+        _levels = [NSMutableArray array];
+        for (int i = 0; i < 16; i++) [_levels addObject:@0.05];
+        self.backgroundColor = UIColor.clearColor;
+        self.userInteractionEnabled = NO;
+    }
+    return self;
+}
+- (void)setLevel:(CGFloat)v index:(NSInteger)i {
+    if (i < 0 || i >= (NSInteger)_levels.count) return;
+    _levels[(NSUInteger)i] = @(v);
+    [self setNeedsDisplay];
+}
+- (void)drawRect:(CGRect)rect {
+    NSUInteger n = _levels.count;
+    if (!n) return;
+    CGFloat w = rect.size.width / n;
+    UIColor *c = LLLAccentColor();
+    for (NSUInteger i = 0; i < n; i++) {
+        CGFloat h = MAX(2.0, [_levels[i] doubleValue] * rect.size.height);
+        CGRect r = CGRectMake(i * w + w * 0.22, rect.size.height - h, w * 0.56, h);
+        UIBezierPath *p = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:w * 0.28];
+        [c setFill];
+        [p fill];
+    }
+}
+@end
+
+#pragma mark - LRC 解析
+
+static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
+    NSString *txt = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    if (!txt.length) txt = [NSString stringWithContentsOfFile:path
+                                                     encoding:NSUTF8StringEncoding
+                                                        error:nil];
+    if (!txt.length) return nil;
+
+    NSMutableArray *out = [NSMutableArray array];
+    NSRegularExpression *re =
+        [NSRegularExpression regularExpressionWithPattern:@"\\[(\\d+):(\\d+)(?:[.:](\\d+))?\\](.*)"
+                                                  options:0 error:nil];
+    for (NSString *line in [txt componentsSeparatedByCharactersInSet:
+                            [NSCharacterSet newlineCharacterSet]]) {
+        NSTextCheckingResult *m = [re firstMatchInString:line options:0 range:NSMakeRange(0, line.length)];
+        if (!m) continue;
+        NSInteger mm = [[line substringWithRange:[m rangeAtIndex:1]] integerValue];
+        NSInteger ss = [[line substringWithRange:[m rangeAtIndex:2]] integerValue];
+        NSString *body = [[line substringWithRange:[m rangeAtIndex:4]]
+                          stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (!body.length) continue;
+        [out addObject:@{ @"t": @(mm * 60 + ss), @"s": body }];
+    }
+    [out sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [a[@"t"] compare:b[@"t"]];
+    }];
+    return out;
+}
+
 @implementation MainViewController {
     dispatch_source_t _timer;
     NSUInteger _delCount;
@@ -35,6 +102,11 @@ static void lllReload(UITableView *tv) {
     UIView *_indicator;      // 侧栏滑块
     UILabel *_headerTitle;   // 顶部主标题
     UILabel *_headerSub;     // 顶部副标题（显示探测到的注入目标）
+    LLLBarsView *_bars;
+    UILabel *_lyrics;
+    NSArray *_lrcLines;
+    NSInteger _lrcIndex;
+    NSInteger _lastMusicIndex;
 }
 
 - (instancetype)init {
@@ -515,6 +587,16 @@ static void lllReload(UITableView *tv) {
     });
 }
 
+- (void)loadLyricsForPath:(NSString *)path {
+    _lrcLines = nil;
+    _lrcIndex = -1;
+    if (_lyrics) _lyrics.text = @"";
+    if (!path.length) return;
+    NSString *lrc = [path.stringByDeletingPathExtension stringByAppendingPathExtension:@"lrc"];
+    _lrcLines = LLLParseLRC(lrc);
+    if (_lrcLines.count) _lyrics.text = _lrcLines.firstObject[@"s"];
+}
+
 - (void)setupPlayerCard {
     _playerCard = [UIView new];
     _playerCard.translatesAutoresizingMaskIntoConstraints = NO;
@@ -525,6 +607,20 @@ static void lllReload(UITableView *tv) {
     _playerCard.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.10].CGColor;
     _playerCard.clipsToBounds = YES;
     _playerCard.hidden = YES;
+    UIVisualEffectView *pe = [[UIVisualEffectView alloc] initWithEffect:
+                              [UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
+    pe.translatesAutoresizingMaskIntoConstraints = NO;
+    pe.userInteractionEnabled = NO;
+    [_playerCard addSubview:pe];
+
+    CAGradientLayer *gl = [CAGradientLayer layer];
+    gl.colors = @[ (id)[LLLAccentColor() colorWithAlphaComponent:0.28].CGColor,
+                   (id)[UIColor clearColor].CGColor ];
+    gl.startPoint = CGPointMake(0, 0);
+    gl.endPoint = CGPointMake(1, 1);
+    gl.frame = CGRectMake(0, 0, 400, 400);
+    [_playerCard.layer insertSublayer:gl atIndex:0];
+
     [self.contentContainerView addSubview:_playerCard];
 
     _playerHeight = [_playerCard.heightAnchor constraintEqualToConstant:0];
@@ -613,6 +709,20 @@ static void lllReload(UITableView *tv) {
     [_playerVolume addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged];
     [_playerCard addSubview:_playerVolume];
 
+    _bars = [[LLLBarsView alloc] initWithFrame:CGRectZero];
+    _bars.translatesAutoresizingMaskIntoConstraints = NO;
+    [_playerCard addSubview:_bars];
+
+    _lyrics = [UILabel new];
+    _lyrics.translatesAutoresizingMaskIntoConstraints = NO;
+    _lyrics.text = @"";
+    _lyrics.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    _lyrics.textColor = [UIColor colorWithWhite:0.85 alpha:1];
+    _lyrics.textAlignment = NSTextAlignmentCenter;
+    _lyrics.numberOfLines = 1;
+    _lyrics.lineBreakMode = NSLineBreakByTruncatingTail;
+    [_playerCard addSubview:_lyrics];
+
     UIImageView *volIcon = [[UIImageView alloc] init];
     volIcon.translatesAutoresizingMaskIntoConstraints = NO;
     if (@available(iOS 13.0, *)) {
@@ -659,6 +769,16 @@ static void lllReload(UITableView *tv) {
         [_playerVolume.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-18],
         [_playerVolume.topAnchor constraintEqualToAnchor:row.bottomAnchor constant:10],
         [_playerVolume.heightAnchor constraintEqualToConstant:24],
+
+        [_bars.leadingAnchor constraintEqualToAnchor:_playerCard.leadingAnchor constant:20],
+        [_bars.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-20],
+        [_bars.topAnchor constraintEqualToAnchor:_playerVolume.bottomAnchor constant:8],
+        [_bars.heightAnchor constraintEqualToConstant:36],
+
+        [_lyrics.leadingAnchor constraintEqualToAnchor:_playerCard.leadingAnchor constant:20],
+        [_lyrics.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-20],
+        [_lyrics.topAnchor constraintEqualToAnchor:_bars.bottomAnchor constant:6],
+        [_lyrics.heightAnchor constraintEqualToConstant:18],
     ]];
 }
 
@@ -1176,6 +1296,36 @@ static void lllReload(UITableView *tv) {
                                      (int)(cur / 60), (int)fmod(cur, 60),
                                      (int)(total / 60), (int)fmod(total, 60)];
     }
+    // 声压条
+    if (_bars) {
+        AVAudioPlayer *ap2 = self.audioPlayer;
+        float base = 0;
+        if (ap2 && ap2.isMeteringEnabled && ap2.isPlaying) {
+            [ap2 updateMeters];
+            float db = [ap2 averagePowerForChannel:0];
+            base = powf(10.0f, db / 40.0f);
+            if (base < 0.02f) base = 0.02f;
+            if (base > 1.0f) base = 1.0f;
+        }
+        for (int i = 0; i < 16; i++) {
+            CGFloat k = 0.5 + 0.5 * (((i * 7) % 13) / 12.0);
+            [_bars setLevel:base * k index:i];
+        }
+    }
+
+    // 歌词
+    if (_lyrics && _lrcLines.count) {
+        NSInteger idx = -1;
+        for (NSUInteger i = 0; i < _lrcLines.count; i++) {
+            double lt = [_lrcLines[i][@"t"] doubleValue];
+            if (lt <= cur) idx = (NSInteger)i; else break;
+        }
+        if (idx >= 0 && idx != _lrcIndex) {
+            _lrcIndex = idx;
+            _lyrics.text = _lrcLines[(NSUInteger)idx][@"s"];
+        }
+    }
+
     if (_progressSlider || _playerProgress) return;
     AVPlayer *vp = self.videoMusicPlayer;
     if (vp && vp.currentItem) {

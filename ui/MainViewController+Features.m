@@ -31,11 +31,23 @@ static void (^gLLLCloseCloudCard)(void) = nil;
         self.audioPlayer = [[AVAudioPlayer alloc] initWithContentsOfURL:[NSURL fileURLWithPath:path] error:&err];
         self.audioPlayer.delegate = self;
         self.audioPlayer.enableRate = YES;
+        self.audioPlayer.meteringEnabled = YES;
         self.audioPlayer.rate = self.doubleSpeed ? 2.0 : 1.0;
         [self.audioPlayer prepareToPlay];
         [self.audioPlayer play];
         self.isPlaying = YES;
     }
+    [self loadLyricsForPath:path];
+
+    if (self.playerCover) {
+        CABasicAnimation *flip = [CABasicAnimation animationWithKeyPath:@"transform.scale.x"];
+        flip.fromValue = @1.0;
+        flip.toValue = @0.02;
+        flip.duration = 0.16;
+        flip.autoreverses = YES;
+        [self.playerCover.layer addAnimation:flip forKey:@"flip"];
+    }
+
     [self updateMusicUI];
     ShowToast([NSString stringWithFormat:@"正在播放: %@", self.musicNames[idx]], 2, YES, NO);
 }
