@@ -514,6 +514,81 @@ void lllLogDirectorySnapshot(void) {
     }
 }
 
+
+#pragma mark - 主题色
+
+static UIColor *LLLThemeDefaultPreset(LLLThemeIndex i) {
+    switch (i) {
+        case LLLThemeGreen:  return [UIColor colorWithRed:0.16 green:0.82 blue:0.45 alpha:1.0];
+        case LLLThemePurple: return [UIColor colorWithRed:0.62 green:0.40 blue:1.00 alpha:1.0];
+        case LLLThemeOrange: return [UIColor colorWithRed:0.95 green:0.52 blue:0.12 alpha:1.0];
+        case LLLThemePink:   return [UIColor colorWithRed:1.00 green:0.36 blue:0.62 alpha:1.0];
+        case LLLThemeBlue:
+        default:             return [UIColor colorWithRed:0.22 green:0.60 blue:1.00 alpha:1.0];
+    }
+}
+
+UIColor *LLLAccentColorFor(LLLThemeIndex i) {
+    if (i < 0 || i >= LLLThemeCount) i = LLLThemeBlue;
+    return LLLThemeDefaultPreset(i);
+}
+
+NSInteger LLLThemeIndexValue(void) {
+    NSInteger v = [[NSUserDefaults standardUserDefaults] integerForKey:@"LLL.theme"];
+    if (v < 0 || v >= LLLThemeCount) v = LLLThemeBlue;
+    return v;
+}
+
+void LLLSetThemeIndex(NSInteger i) {
+    if (i < 0 || i >= LLLThemeCount) i = LLLThemeBlue;
+    [[NSUserDefaults standardUserDefaults] setInteger:i forKey:@"LLL.theme"];
+}
+
+UIColor *LLLAccentColor(void) {
+    return LLLAccentColorFor((LLLThemeIndex)LLLThemeIndexValue());
+}
+
+NSString *LLLThemeName(LLLThemeIndex i) {
+    switch (i) {
+        case LLLThemeGreen:  return @"\u9752";
+        case LLLThemePurple: return @"\u7d2b";
+        case LLLThemeOrange: return @"\u6a59";
+        case LLLThemePink:   return @"\u7c89";
+        default:             return @"\u84dd";
+    }
+}
+
+#pragma mark - behavior_packs / 全局清单
+
+NSArray<NSString*>* behaviorPacksDirs(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *base = [neteaseGameBasePath() stringByAppendingPathComponent:@"behavior_packs"];
+    NSArray<NSString*> *items = [fm contentsOfDirectoryAtPath:base error:nil];
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSString *d in items) {
+        if ([d hasPrefix:@"."]) continue;
+        NSString *full = [base stringByAppendingPathComponent:d];
+        BOOL isDir = NO;
+        if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) [out addObject:full];
+    }
+    return out;
+}
+
+NSArray<NSString*>* globalPackJSONCandidates(void) {
+    NSString *base = neteaseGameBasePath();
+    return @[
+        [base stringByAppendingPathComponent:@"global_resource_packs.json"],
+        [base stringByAppendingPathComponent:@"resource_packs/global_resource_packs.json"],
+        [base stringByAppendingPathComponent:@"minecraftpe/global_resource_packs.json"],
+        [[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/games/com.netease"]
+            stringByAppendingPathComponent:@"global_resource_packs.json"],
+    ];
+}
+
+NSArray<NSString*>* legacyPatchDirs(void) {
+    return detectLegacyPatchDirs();
+}
+
 BOOL lllEnsurePackManifestAt(NSString *dir) {
     if (!dir.length) return NO;
     ensureDir(dir);
