@@ -313,15 +313,19 @@ static void (^gLLLCloseCloudCard)(void) = nil;
                 PlayHaptic(NO);
                 return;
             }
-            NSMutableArray *titles = [NSMutableArray arrayWithCapacity:songs.count];
-            for (NSDictionary *s in songs) {
-                [titles addObject:[NSString stringWithFormat:@"%@ - %@", s[@"name"], s[@"artist"]]];
+            // 列表一次最多渲染 300 条，否则上千个 UIButton 会把主线程干死
+            NSUInteger limit = MIN(songs.count, (NSUInteger)300);
+            NSMutableArray *titles = [NSMutableArray arrayWithCapacity:limit];
+            for (NSUInteger i = 0; i < limit; i++) {
+                NSDictionary *sg = songs[i];
+                [titles addObject:[NSString stringWithFormat:@"%@ - %@", sg[@"name"], sg[@"artist"]]];
             }
-            LLLShowList(@"我喜欢的音乐",
-                        [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count],
-                        titles,
-                        ^(NSInteger idx) {
-                if (idx >= 0 && idx < (NSInteger)songs.count) [self playCloudSong:songs[(NSUInteger)idx]];
+            NSString *msg = (songs.count > limit)
+                ? [NSString stringWithFormat:@"共 %lu 首，先显示前 %lu 首", (unsigned long)songs.count, (unsigned long)limit]
+                : [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count];
+
+            LLLShowList(@"我喜欢的音乐", msg, titles, ^(NSInteger idx) {
+                if (idx >= 0 && idx < (NSInteger)limit) [self playCloudSong:songs[(NSUInteger)idx]];
             });
         });
     }];

@@ -287,6 +287,37 @@ static void LLLJournalFlush(void) {
     gAllJournal = nil;
 }
 
+
+// 各种材质包的根目录不一定就在第一层：
+// 常见的有 "素材包/资源包/textures/..."、"我的材质/textures/..."（多套了一层）。
+// 这里自动往下钻，找到真正含资源子目录的那一层。
+static BOOL LLLHasResources(NSString *dir) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    for (NSString *sub in @[@"textures", @"ui", @"sounds", @"models", @"font",
+                            @"particles", @"shaders", @"animations",
+                            @"render_controllers", @"entity", @"materials", @"texts"]) {
+        if ([fm fileExistsAtPath:[dir stringByAppendingPathComponent:sub]]) return YES;
+    }
+    return NO;
+}
+
+static NSString *resolvePackRoot(NSString *dir, int depth) {
+    if (depth <= 0) return dir;
+    if (LLLHasResources(dir)) return dir;
+
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSArray<NSString*> *items = [fm contentsOfDirectoryAtPath:dir error:nil];
+    NSMutableArray *dirs = [NSMutableArray array];
+    for (NSString *it in items) {
+        if ([it hasPrefix:@"."]) continue;
+        NSString *full = [dir stringByAppendingPathComponent:it];
+        BOOL isDir = NO;
+        if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) [dirs addObject:full];
+    }
+    if (dirs.count != 1) return dir;          // 只有唯一子目录时才下钻，避免乱猜
+    return resolvePackRoot(dirs.firstObject, depth - 1);
+}
+
 static NSString *dirName(NSString *p) {
     return [p stringByDeletingLastPathComponent].lastPathComponent;
 }
@@ -464,6 +495,10 @@ static NSUInteger lllCountFiles(NSString *dir) {
 
         for (NSUInteger i = 0; i < paths.count; i++) {
             NSString *name = (i < names.count) ? names[i] : [(NSString *)paths[i] lastPathComponent];
+            NSString *srcRoot = resolvePackRoot(paths[i], 3);
+            if (![srcRoot isEqualToString:paths[i]]) {
+                lllLog(@"包根下钻: %@ -> %@", paths[i].lastPathComponent, srcRoot.lastPathComponent);
+            }
             BOOL any = NO;
 
             for (NSString *t in targets) {
@@ -472,7 +507,7 @@ static NSUInteger lllCountFiles(NSString *dir) {
                 sJournalEntries = [NSMutableArray array];
 
                 lllEnsurePackManifestAt(t);
-                BOOL r = mergeDir(paths[i], t);
+                BOOL r = mergeDir(srcRoot, t);
                 if (r) any = YES;
                 lllLog(@"   -> %@  %@  (%lu files)", t, r ? @"OK" : @"FAIL",
                        (unsigned long)lllCountFiles(t));
@@ -487,7 +522,7 @@ static NSUInteger lllCountFiles(NSString *dir) {
 
             if (any && mirrors.count) {
                 for (NSString *m in mirrors) {
-                    mergeDir(paths[i], m);
+                    mergeDir(srcRoot, m);
                     lllLog(@"   ~> 镜像 %@", m.lastPathComponent);
                 }
             }

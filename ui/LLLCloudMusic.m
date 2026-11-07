@@ -84,7 +84,13 @@ static NSString * const kUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 l
         }];
     }
 
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
+    NSURL *finalURL = [NSURL URLWithString:url];
+    if (!finalURL) {                     // URL 非法直接返回，别把 nil 丢给 requestWithURL（会抛异常崩溃）
+        if (done) done(nil, [NSError errorWithDomain:@"LLLCloud" code:-1 userInfo:nil]);
+        return;
+    }
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:finalURL];
     req.HTTPMethod = @"GET";
     [req setValue:kUserAgent forHTTPHeaderField:@"User-Agent"];
     [req setValue:kBase forHTTPHeaderField:@"Referer"];
@@ -156,12 +162,17 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
         UIImage *qr = LLLQRImage(content, 220);
         if (s.progressBlock) s.progressBlock(qr, @"请用网易云 App 扫码");
 
-        s.pollTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
-            __strong typeof(w) ss = w;
-            if (!ss) { [t invalidate]; return; }
-            [ss pollOnce];
-        }];
-        [[NSRunLoop mainRunLoop] addTimer:s.pollTimer forMode:NSRunLoopCommonModes];
+        // 定时器必须在主线程的 runloop 上创建，否则永远不触发
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) ss2 = w;
+            if (!ss2) return;
+            ss2.pollTimer = [NSTimer timerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
+                __strong typeof(w) sss = w;
+                if (!sss) { [t invalidate]; return; }
+                [sss pollOnce];
+            }];
+            [[NSRunLoop mainRunLoop] addTimer:ss2.pollTimer forMode:NSRunLoopCommonModes];
+        });
     }];
 }
 
