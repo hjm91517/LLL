@@ -531,7 +531,11 @@ BOOL isPerformanceMonitorEnabled(void) {
 }
 
 __attribute__((constructor)) static void MonitorInit() {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (isPerformanceMonitorEnabled()) AttachMonitorPanel();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        @try {
+            if (isPerformanceMonitorEnabled()) AttachMonitorPanel();
+        } @catch (NSException *e) {
+            NSLog(@"[LLL] 性能面板启动异常: %@", e.reason);
+        }
     });
 }

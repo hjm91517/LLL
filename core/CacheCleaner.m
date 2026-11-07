@@ -297,8 +297,15 @@ static void autoStartIfEnabled(void) {
 
 __attribute__((constructor))
 static void CacheCleanerInit(void) {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        autoStartIfEnabled();
+    // 20s：等宿主把资源仓库、UI 栈全部拉起来之后再动文件。
+    // 启动阶段删 resource_packs 里的 ui json 会让运行中的包栈持有失效引用。
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        @try {
+            autoStartIfEnabled();
+        } @catch (NSException *e) {
+            NSLog(@"[LLL] CacheCleaner 启动异常: %@", e.reason);
+        }
     });
 }
 

@@ -2,10 +2,10 @@
 //  Entry.m
 //  LLL / MaterialPackManager 入口
 //
-//  注入后：
-//    1. 校验授权窗口（可运行时用 NSUserDefaults 覆盖，不用重新编译）
-//    2. 监听转屏，重排悬浮球
-//    3. 延迟 0.5s 起悬浮球 + 水印（等宿主窗口就绪）
+//  设计原则：启动阶段绝不抢跑。
+//    · 任何异常都不许冒泡到宿主
+//    · 连续崩溃自动熔断，不让插件把游戏拖成启动循环
+//    · UI 延后到宿主窗口稳定之后再挂
 //
 
 #import "FloatMonitor.h"
@@ -16,10 +16,14 @@
 static NSString * const kLicStartKey = @"LLL.licenseStart";
 static NSString * const kLicEndKey   = @"LLL.licenseEnd";
 
-// 默认窗口放到 2036：原来写死到 2026-08-31，今天已经过期，
-// 结果是整个插件静默不加载（悬浮球、UI 全都不出来）。
 static NSString * const kLicStartDefault = @"2026-04-24";
 static NSString * const kLicEndDefault   = @"2036-12-31";
+
+#pragma mark - 熔断
+
+static NSString * const kBootTimeKey = @"LLL.bootTime";
+static NSString * const kStrikesKey  = @"LLL.strikes";
+static NSString * const kDisabledKey = @"LLL.disabled";
 
 static NSDateFormatter *DayFormatter(void) {
     static NSDateFormatter *f;
@@ -33,7 +37,6 @@ static NSDateFormatter *DayFormatter(void) {
     return f;
 }
 
-// 把 "yyyy-MM-dd" 解析成当天 00:00:00；失败返回 nil
 static NSDate *ParseDay(NSString *s, NSCalendar *cal) {
     if (s.length == 0) return nil;
     NSDate *d = [DayFormatter() dateFromString:s];
@@ -50,36 +53,91 @@ static BOOL LicenseValid(void) {
     NSCalendar *cal = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
     NSDate *start = ParseDay(SettingOrDefault(kLicStartKey, kLicStartDefault), cal);
     NSDate *end   = ParseDay(SettingOrDefault(kLicEndKey,   kLicEndDefault),   cal);
-    if (!start || !end) return YES;   // 配错了就别掐死，放行
+    if (!start || !end) return YES;
 
     NSDate *today = [cal startOfDayForDate:[NSDate date]];
     return [today compare:start] != NSOrderedAscending &&
            [today compare:end]   != NSOrderedDescending;
 }
 
+// 60 秒内连续两次被重新拉起 → 判为启动崩溃循环，本次完全不加载。
+// 冷静 10 分钟后再启动会自动恢复正常。
+static BOOL CrashLoopGuard(void) {
+    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+
+    if ([d boolForKey:kDisabledKey]) {
+        NSLog(@"[LLL] LLL.disabled = YES，跳过加载");
+        return NO;
+    }
+
+    double now  = CFAbsoluteTimeGetCurrent();
+    double last = [d doubleForKey:kBootTimeKey];
+    NSInteger strikes = [d integerForKey:kStrikesKey];
+
+    if (last > 0 && (now - last) < 60.0) strikes++;
+    else strikes = 0;
+
+    [d setDouble:now forKey:kBootTimeKey];
+    [d setInteger:strikes forKey:kStrikesKey];
+
+    if (strikes >= 2) {
+        NSLog(@"[LLL] 连续 %ld 次快速重启，判定崩溃循环，本次跳过", (long)strikes);
+        return NO;
+    }
+
+    // 30 秒没崩就清零
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(30 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        NSUserDefaults *dd = NSUserDefaults.standardUserDefaults;
+        if ([dd integerForKey:kStrikesKey] < 2) [dd setInteger:0 forKey:kStrikesKey];
+    });
+
+    return YES;
+}
+
 #pragma mark - 入口
 
 __attribute__((constructor))
 static void LLLInit(void) {
-    if (!LicenseValid()) {
-        NSLog(@"[MaterialPackManager] 授权窗口已过（start=%@ end=%@），跳过加载",
-              SettingOrDefault(kLicStartKey, kLicStartDefault),
-              SettingOrDefault(kLicEndKey, kLicEndDefault));
-        return;
+    @autoreleasepool {
+        @try {
+            if (!LicenseValid()) {
+                NSLog(@"[LLL] 授权窗口已过，跳过加载");
+                return;
+            }
+            if (!CrashLoopGuard()) return;
+
+            @try {
+                [NSNotificationCenter.defaultCenter
+                    addObserverForName:UIDeviceOrientationDidChangeNotification
+                                object:nil
+                                 queue:NSOperationQueue.mainQueue
+                            usingBlock:^(NSNotification *note) {
+                                @try { handleOrientationChange(); } @catch (__unused NSException *e) {}
+                            }];
+            } @catch (__unused NSException *e) {}
+
+            // 1.5s 之后再挂悬浮球：等宿主场景、窗口、渲染链全部就绪
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                @try {
+                    showFloatingBall();
+                } @catch (NSException *e) {
+                    NSLog(@"[LLL] showFloatingBall 异常: %@", e.reason);
+                }
+
+                // 水印再往后错 0.6s，别和悬浮球抢同一帧的布局
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    @try {
+                        showWatermark();
+                    } @catch (NSException *e) {
+                        NSLog(@"[LLL] showWatermark 异常: %@", e.reason);
+                    }
+                });
+            });
+        } @catch (NSException *e) {
+            NSLog(@"[LLL] 初始化异常: %@", e.reason);
+        }
     }
-
-    [NSNotificationCenter.defaultCenter
-        addObserverForName:UIDeviceOrientationDidChangeNotification
-                    object:nil
-                     queue:NSOperationQueue.mainQueue
-                usingBlock:^(NSNotification *note) {
-                    handleOrientationChange();
-                }];
-
-    // 宿主窗口 0.5s 内基本就绪，早了拿不到 UIWindowScene
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        showFloatingBall();
-        showWatermark();
-    });
 }
