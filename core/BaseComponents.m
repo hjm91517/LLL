@@ -563,12 +563,8 @@ NSArray<NSString*>* hotPatchPackDirs(void) {
         BOOL isDir = NO;
         if (![fm fileExistsAtPath:full isDirectory:&isDir] || !isDir) continue;
 
-        // 有 textures / ui / models 之类的才算补丁包
-        BOOL useful = NO;
-        for (NSString *sub in @[@"textures", @"ui", @"models", @"animations", @"shaders", @"font", @"particles"]) {
-            if ([fm fileExistsAtPath:[full stringByAppendingPathComponent:sub]]) { useful = YES; break; }
-        }
-        if (useful) [out addObject:full];
+        // 只看名字，不看内容 —— 目录被清空过也要继续认它
+        [out addObject:full];
     }
     return out;
 }
@@ -764,13 +760,8 @@ NSArray<NSString*>* userResourcePackDirs(void) {
         NSString *full = [root stringByAppendingPathComponent:it];
         BOOL isDir = NO;
         if (![fm fileExistsAtPath:full isDirectory:&isDir] || !isDir) continue;
-        // 只要里面有 textures/ui/models 这种真资源就算，不强制要求 pack_manifest.json
-        BOOL useful = NO;
-        for (NSString *sub in @[@"textures", @"ui", @"models", @"font", @"particles",
-                                @"sounds", @"shaders", @"animations", @"render_controllers"]) {
-            if ([fm fileExistsAtPath:[full stringByAppendingPathComponent:sub]]) { useful = YES; break; }
-        }
-        if (useful) [out addObject:full];
+        // 同样只看名字，别因为被清空过就漏掉
+        [out addObject:full];
     }
     return out;
 }

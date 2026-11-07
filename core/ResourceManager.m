@@ -494,14 +494,28 @@ static NSUInteger lllCountFiles(NSString *dir) {
 
 + (void)cleanTarget:(void(^)(BOOL))cb {
     dispatch_async(g_fileQueue(), ^{
-        // 我们自己的包目录，manifest 必须留着，否则包就废了
+        // 只清 LLL 自己的两个目录。游戏自己的 3.10_v_* 补丁包一个字节都不许动。
+        NSMutableArray *mine = [NSMutableArray array];
+        [mine addObject:targetPath()];
+
+        NSString *leaf = targetPath().lastPathComponent;
+        for (NSString *base in candidateGameBases()) {
+            NSString *dev = [base stringByAppendingPathComponent:@"development_resource_packs"];
+            BOOL isDir = NO;
+            if ([[NSFileManager defaultManager] fileExistsAtPath:dev isDirectory:&isDir] && isDir) {
+                [mine addObject:[dev stringByAppendingPathComponent:leaf]];
+            }
+        }
+
         BOOL ok = YES;
-        for (NSString *t in injectionTargetDirs()) {
+        for (NSString *t in mine) {
             NSFileManager *fm = [NSFileManager defaultManager];
             if (![fm fileExistsAtPath:t]) continue;
             if (!cleanDir(t, @"manifest.json")) ok = NO;
-            lllLog(@"清理 %@ -> %lu files", t, (unsigned long)lllCountFiles(t));
+            lllLog(@"清理(仅自己) %@ -> %lu files", t.lastPathComponent,
+                   (unsigned long)lllCountFiles(t));
         }
+
         dispatch_async(dispatch_get_main_queue(), ^{ if (cb) cb(ok); });
     });
 }
