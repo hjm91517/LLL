@@ -321,7 +321,7 @@ static void cleanCache(NSString *dir, NSRegularExpression *re, NSFileManager *fm
         NSMutableArray *ok = [NSMutableArray new], *fail = [NSMutableArray new];
 
         for (NSUInteger i = 0; i < paths.count; i++) {
-            NSString *name = (i < names.count) ? names[i] : paths[i].lastPathComponent;
+            NSString *name = (i < names.count) ? names[i] : [(NSString *)paths[i] lastPathComponent];
             if (mergeDir(paths[i], t)) [ok addObject:name];
             else                        [fail addObject:name];
         }
@@ -363,7 +363,7 @@ static void cleanCache(NSString *dir, NSRegularExpression *re, NSFileManager *fm
             if ([fm fileExistsAtPath:ctx]) [fm removeItemAtPath:ctx error:nil];
 
             for (NSUInteger i = 0; i < paths.count; i++) {
-                NSString *name = (i < names.count) ? names[i] : paths[i].lastPathComponent;
+                NSString *name = (i < names.count) ? names[i] : [(NSString *)paths[i] lastPathComponent];
                 if (mergeDir(paths[i], target)) [ok addObject:name];
                 else                            [fail addObject:name];
             }
