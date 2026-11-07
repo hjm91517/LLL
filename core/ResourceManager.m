@@ -411,6 +411,28 @@ static NSUInteger lllCountFiles(NSString *dir) {
             [EffectInjector mergeInto:targets.firstObject];
         }
 
+        // 让游戏重新扫一遍资源：删掉已知包清单和资源索引缓存。
+        // 不删这个，就算哈希全对上了，游戏也可能拿旧索引直接跳过我们的包。
+        {
+            NSString *base = neteaseGameBasePath();
+            NSFileManager *fm = [NSFileManager defaultManager];
+            for (NSString *name in @[@"valid_known_packs.json", @"invalid_known_packs.json"]) {
+                NSString *p = [base stringByAppendingPathComponent:name];
+                if ([fm fileExistsAtPath:p]) {
+                    BOOL ok = [fm removeItemAtPath:p error:nil];
+                    lllLog(@"索引失效: %@ -> %@", name, ok ? @"已删" : @"失败");
+                }
+            }
+            NSString *rm = [base stringByAppendingPathComponent:@"storge/stream/resource_management"];
+            NSArray *subs = [fm contentsOfDirectoryAtPath:rm error:nil];
+            if (subs.count) {
+                for (NSString *f in subs) {
+                    [fm removeItemAtPath:[rm stringByAppendingPathComponent:f] error:nil];
+                }
+                lllLog(@"索引失效: resource_management 清空 %lu 项", (unsigned long)subs.count);
+            }
+        }
+
         BOOL reg = lllRegisterGlobalPack();
         lllLog(@"注册 global_resource_packs.json：%@", reg ? @"成功" : @"失败");
         for (NSString *p in globalPackJSONCandidates()) {

@@ -764,9 +764,13 @@ NSArray<NSString*>* userResourcePackDirs(void) {
         NSString *full = [root stringByAppendingPathComponent:it];
         BOOL isDir = NO;
         if (![fm fileExistsAtPath:full isDirectory:&isDir] || !isDir) continue;
-        if ([fm fileExistsAtPath:[full stringByAppendingPathComponent:@"pack_manifest.json"]]) {
-            [out addObject:full];
+        // 只要里面有 textures/ui/models 这种真资源就算，不强制要求 pack_manifest.json
+        BOOL useful = NO;
+        for (NSString *sub in @[@"textures", @"ui", @"models", @"font", @"particles",
+                                @"sounds", @"shaders", @"animations", @"render_controllers"]) {
+            if ([fm fileExistsAtPath:[full stringByAppendingPathComponent:sub]]) { useful = YES; break; }
         }
+        if (useful) [out addObject:full];
     }
     return out;
 }
