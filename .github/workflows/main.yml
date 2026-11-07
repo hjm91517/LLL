@@ -134,13 +134,35 @@ jobs:
             [ -z "$f" ] && continue
             b=$(basename "$f")
             if grep -qxF "$b" /tmp/picked.txt; then continue; fi
-            if ! file "$f" | grep -q 'Mach-O'; then
-              echo "跳过非 Mach-O: $f"
-              continue
-            fi
             echo "$b" >> /tmp/picked.txt
-            cp -f "$f" "dist/$b"
+
+            # 同名候选里挑架构最多的那个（Theos 会把 fat 版放在 .theos/obj/ 根下，
+            # 各架构分片在 .theos/obj/<arch>/ 里，别拿错）
+            best="$f"; bestn=0
+            for c in $(grep "/$b\$" /tmp/all_dylibs.txt); do
+              file "$c" | grep -q 'Mach-O' || continue
+              n=$(lipo -archs "$c" 2>/dev/null | wc -w | tr -d ' ')
+              if [ -n "$n" ] && [ "$n" -gt "$bestn" ]; then bestn=$n; best="$c"; fi
+            done
+
+            cp -f "$best" "dist/$b"
+            echo "  $b  <=  $best  (archs=$bestn)"
           done < /tmp/all_dylibs.txt
+
+          # 兜底：只挑到单架构但分片齐全 → 自己 lipo 合并成 universal
+          for f in dist/*.dylib; do
+            [ -e "$f" ] || continue
+            b=$(basename "$f")
+            n=$(lipo -archs "$f" 2>/dev/null | wc -w | tr -d ' ')
+            if [ -n "$n" ] && [ "$n" -le 1 ]; then
+              slices=$(ls .theos/obj/*/"$b" 2>/dev/null || true)
+              if [ -n "$slices" ]; then
+                if lipo -create -output "$f" $slices 2>/dev/null; then
+                  echo "  lipo 合并 $b -> $(lipo -archs "$f")"
+                fi
+              fi
+            fi
+          done
 
           echo "--- 签名 ---"
           for f in dist/*.dylib; do
