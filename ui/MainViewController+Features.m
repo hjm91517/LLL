@@ -113,6 +113,21 @@ static void (^gLLLCloseCloudCard)(void) = nil;
 
 - (void)updateMusicUI {
     [self applyVolume];
+
+    if (self.nowPlayingLabel) {
+        if (self.currentMusicIndex >= 0 &&
+            self.currentMusicIndex < (NSInteger)self.musicNames.count) {
+            self.nowPlayingLabel.text = self.musicNames[(NSUInteger)self.currentMusicIndex];
+        } else {
+            self.nowPlayingLabel.text = self.isPlaying ? @"播放中" : @"未在播放";
+        }
+    }
+    if (self.isPlaying) {
+        [self startProgressTimer];
+    } else {
+        [self stopProgressTimer];
+        if (self.progressSlider) self.progressSlider.value = 0;
+    }
     if (@available(iOS 13.0, *)) {
         [self.playPauseBtn setImage:[UIImage systemImageNamed:self.isPlaying ? @"pause.fill" : @"play.fill"] forState:UIControlStateNormal];
     }

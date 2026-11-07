@@ -284,8 +284,7 @@ NSString* targetPath(void) {
 
         // 3.10 的包目录按 "<uuid>_resource_packs_<名字>" 命名（游戏自己的包就是这个格式）。
         // 裸名字 LLL_inject 会被扫描器直接跳过 —— 这就是上一版文件全写了但游戏不认的原因。
-        p = [resourcePacksRootPath() stringByAppendingPathComponent:
-             [kLLLPackUUID stringByAppendingString:@"_resource_packs_lll"]];
+        p = [resourcePacksRootPath() stringByAppendingPathComponent:lllPackDirName()];
         ensureDir(p);
 
         // 迁移：清掉旧版留下的裸目录
@@ -460,6 +459,10 @@ NSArray<NSString*>* injectionTargetDirs(void) {
             addDir([rp stringByAppendingPathComponent:leaf]);
         }
     }
+
+    // 游戏自己那几个 3.10_v_* 热更包，直接覆盖进去，这条最稳
+    for (NSString *dir in hotPatchPackDirs()) addDir(dir);
+
     return out;
 }
 
@@ -514,6 +517,57 @@ void lllLogDirectorySnapshot(void) {
     }
 }
 
+
+
+// 从 resource_packs 里任意一个 "3.10_v_xxx" 目录反推版本前缀
+static NSString *LLLGameVersionPrefix(void) {
+    static NSString *prefix;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        prefix = @"3.10";
+        NSFileManager *fm = NSFileManager.defaultManager;
+        NSArray *items = [fm contentsOfDirectoryAtPath:resourcePacksRootPath() error:nil];
+        NSRegularExpression *re =
+            [NSRegularExpression regularExpressionWithPattern:@"^(\\d+\\.\\d+)_v_" options:0 error:nil];
+        for (NSString *it in items) {
+            NSTextCheckingResult *m = [re firstMatchInString:it options:0 range:NSMakeRange(0, it.length)];
+            if (m) { prefix = [it substringWithRange:[m rangeAtIndex:1]]; break; }
+        }
+    });
+    return prefix;
+}
+
+NSString* lllPackDirName(void) {
+    return [NSString stringWithFormat:@"%@_v_LLL_%@_0_0_1",
+            LLLGameVersionPrefix(), kLLLPackUUID];
+}
+
+// 游戏自己的 "3.10_v_*" 热更补丁包 —— 这些是肯定会被加载的
+NSArray<NSString*>* hotPatchPackDirs(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *root = resourcePacksRootPath();
+    NSArray<NSString*> *items = [fm contentsOfDirectoryAtPath:root error:nil];
+    NSMutableArray *out = [NSMutableArray array];
+    NSString *mine = lllPackDirName();
+
+    for (NSString *it in items) {
+        if ([it hasPrefix:@"."]) continue;
+        if ([it isEqualToString:mine]) continue;
+        if ([it rangeOfString:@"_v_"].location == NSNotFound) continue;   // 只要 3.10_v_* 这类
+
+        NSString *full = [root stringByAppendingPathComponent:it];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:full isDirectory:&isDir] || !isDir) continue;
+
+        // 有 textures / ui / models 之类的才算补丁包
+        BOOL useful = NO;
+        for (NSString *sub in @[@"textures", @"ui", @"models", @"animations", @"shaders", @"font", @"particles"]) {
+            if ([fm fileExistsAtPath:[full stringByAppendingPathComponent:sub]]) { useful = YES; break; }
+        }
+        if (useful) [out addObject:full];
+    }
+    return out;
+}
 
 #pragma mark - 主题色
 
@@ -829,19 +883,28 @@ NSString* musicPath(void) {
 }
 
 void scanMusicFiles(void(^block)(NSString *name, NSString *path)) {
+    if (!block) return;
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSArray *items = [fm contentsOfDirectoryAtPath:musicPath() error:nil];
-    for (NSString *item in items) {
-        if ([item hasPrefix:@"."]) continue;
-        NSString *ext = item.pathExtension.lowercaseString;
-        if (![ext isEqualToString:@"mp3"] && ![ext isEqualToString:@"wav"] &&
-            ![ext isEqualToString:@"m4a"] && ![ext isEqualToString:@"aac"] &&
-            ![ext isEqualToString:@"flac"] && ![ext isEqualToString:@"mp4"] &&
-            ![ext isEqualToString:@"mov"]) continue;
-        NSString *full = [musicPath() stringByAppendingPathComponent:item];
-        BOOL isDir;
-        if ([fm fileExistsAtPath:full isDirectory:&isDir] && !isDir) {
-            block(item, full);
+
+    NSSet *okExt = [NSSet setWithObjects:@"mp3", @"wav", @"m4a", @"aac",
+                    @"flac", @"mp4", @"mov", @"ogg", nil];
+    NSMutableSet *seen = [NSMutableSet set];
+
+    // 先扫 Documents/music，没有就退到 Documents 根，防止用户直接丢在文档目录里
+    for (NSString *dir in @[musicPath(), docsPath()]) {
+        NSArray *items = [fm contentsOfDirectoryAtPath:dir error:nil];
+        for (NSString *item in items) {
+            if ([item hasPrefix:@"."]) continue;
+            NSString *ext = item.pathExtension.lowercaseString;
+            if (![okExt containsObject:ext]) continue;
+            if ([seen containsObject:item]) continue;
+
+            NSString *full = [dir stringByAppendingPathComponent:item];
+            BOOL isDir = NO;
+            if ([fm fileExistsAtPath:full isDirectory:&isDir] && !isDir) {
+                [seen addObject:item];
+                block(item, full);
+            }
         }
     }
 }

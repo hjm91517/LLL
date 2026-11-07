@@ -58,6 +58,8 @@ NSArray<NSString*>* findAllMCPTargets(void);
 NSArray<NSString*>* behaviorPacksDirs(void);
 NSArray<NSString*>* globalPackJSONCandidates(void);
 NSArray<NSString*>* legacyPatchDirs(void);
+NSArray<NSString*>* hotPatchPackDirs(void);
+NSString* lllPackDirName(void);
 NSString* findBugudaoTarget(void);
 NSArray<NSString*>* findAllBugudaoTargets(void);
 NSArray<NSString*>* findAllMisakiTargets(void);

@@ -304,6 +304,28 @@ static void lllReload(UITableView *tv) {
     [_modeBtn addTarget:self action:@selector(switchLoopMode) forControlEvents:UIControlEventTouchUpInside];
     [_musicControlBar addSubview:_modeBtn];
 
+    // 正在播放
+    _nowPlayingLabel = [[UILabel alloc] init];
+    _nowPlayingLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _nowPlayingLabel.text = @"未在播放";
+    _nowPlayingLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    _nowPlayingLabel.textColor = UIColor.whiteColor;
+    _nowPlayingLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    [_musicControlBar addSubview:_nowPlayingLabel];
+
+    // 进度条
+    _progressSlider = [[UISlider alloc] init];
+    _progressSlider.translatesAutoresizingMaskIntoConstraints = NO;
+    _progressSlider.minimumValue = 0.0f;
+    _progressSlider.maximumValue = 1.0f;
+    _progressSlider.value = 0;
+    _progressSlider.minimumTrackTintColor = LLLAccentColor();
+    _progressSlider.maximumTrackTintColor = [UIColor colorWithWhite:1 alpha:0.18];
+    _progressSlider.thumbTintColor = UIColor.whiteColor;
+    [_progressSlider addTarget:self action:@selector(progressSeek:) forControlEvents:UIControlEventTouchUpInside];
+    [_progressSlider addTarget:self action:@selector(progressSeek:) forControlEvents:UIControlEventTouchUpOutside];
+    [_musicControlBar addSubview:_progressSlider];
+
     // 音量条
     _volumeSlider = [[UISlider alloc] init];
     _volumeSlider.translatesAutoresizingMaskIntoConstraints = NO;
@@ -334,6 +356,16 @@ static void lllReload(UITableView *tv) {
     [_musicControlBar addSubview:cloudBtn];
 
     [NSLayoutConstraint activateConstraints:@[
+        [_nowPlayingLabel.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:20],
+        [_nowPlayingLabel.topAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:10],
+        [_nowPlayingLabel.trailingAnchor constraintEqualToAnchor:_musicControlBar.trailingAnchor constant:-20],
+        [_nowPlayingLabel.heightAnchor constraintEqualToConstant:18],
+
+        [_progressSlider.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:18],
+        [_progressSlider.trailingAnchor constraintEqualToAnchor:_musicControlBar.trailingAnchor constant:-18],
+        [_progressSlider.topAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:34],
+        [_progressSlider.heightAnchor constraintEqualToConstant:18],
+
         [_volumeSlider.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:20],
         [_volumeSlider.bottomAnchor constraintEqualToAnchor:_musicControlBar.bottomAnchor constant:-14],
         [_volumeSlider.heightAnchor constraintEqualToConstant:26],
@@ -359,7 +391,7 @@ static void lllReload(UITableView *tv) {
         [_musicControlBar.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:10],
         [_musicControlBar.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor constant:-10],
         [_musicControlBar.bottomAnchor constraintEqualToAnchor:cv.bottomAnchor constant:-12],
-        [_musicControlBar.heightAnchor constraintEqualToConstant:100],
+        [_musicControlBar.heightAnchor constraintEqualToConstant:150],
 
         [clr.leadingAnchor constraintEqualToAnchor:_ab.leadingAnchor],
         [clr.centerYAnchor constraintEqualToAnchor:_ab.centerYAnchor],
@@ -400,27 +432,27 @@ static void lllReload(UITableView *tv) {
         [psv.widthAnchor constraintEqualToAnchor:pclr.widthAnchor],
 
         [prevBtn.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:20],
-        [prevBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:30],
+        [prevBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:82],
         [prevBtn.widthAnchor constraintEqualToConstant:40],
         [prevBtn.heightAnchor constraintEqualToConstant:40],
 
         [_speedBtn.leadingAnchor constraintEqualToAnchor:prevBtn.trailingAnchor constant:12],
-        [_speedBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:30],
+        [_speedBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:82],
         [_speedBtn.widthAnchor constraintEqualToConstant:52],
         [_speedBtn.heightAnchor constraintEqualToConstant:40],
 
         [_playPauseBtn.centerXAnchor constraintEqualToAnchor:_musicControlBar.centerXAnchor],
-        [_playPauseBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:30],
+        [_playPauseBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:82],
         [_playPauseBtn.widthAnchor constraintEqualToConstant:48],
         [_playPauseBtn.heightAnchor constraintEqualToConstant:48],
 
         [_modeBtn.trailingAnchor constraintEqualToAnchor:nextBtn.leadingAnchor constant:-12],
-        [_modeBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:30],
+        [_modeBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:82],
         [_modeBtn.widthAnchor constraintEqualToConstant:52],
         [_modeBtn.heightAnchor constraintEqualToConstant:40],
 
         [nextBtn.trailingAnchor constraintEqualToAnchor:_musicControlBar.trailingAnchor constant:-20],
-        [nextBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:30],
+        [nextBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:82],
         [nextBtn.widthAnchor constraintEqualToConstant:40],
         [nextBtn.heightAnchor constraintEqualToConstant:40]
     ]];
@@ -551,6 +583,7 @@ static void lllReload(UITableView *tv) {
         _indicator.layer.borderColor = [accent colorWithAlphaComponent:0.55].CGColor;
     }
     if (_volumeSlider) _volumeSlider.minimumTrackTintColor = accent;
+    if (_progressSlider) _progressSlider.minimumTrackTintColor = accent;
     if (_headerSub) {
         _headerSub.textColor = [accent colorWithAlphaComponent:0.85];
     }
@@ -728,10 +761,14 @@ static void lllReload(UITableView *tv) {
 - (void)showMusicTab {
     [self setHeader:@"音乐盒" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
     [self reloadMusicData];
+    [self startProgressTimer];
     [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:self.musicControlBar];
 }
 
 - (void)showSettingsTab {
+    // 已经在设置页了，点多少次都别重播动画
+    if (!self.settingsView.hidden && self.settingsView.alpha > 0.9) return;
+
     for (UITableView *v in @[self.st, self.qt, self.pt, self.pqt, self.musict]) v.hidden = YES;
 
     self.settingsView.hidden = NO;
@@ -918,6 +955,54 @@ static void lllReload(UITableView *tv) {
 - (void)volumeChanged:(UISlider *)sender {
     [[NSUserDefaults standardUserDefaults] setFloat:sender.value forKey:@"LLL.volume"];
     [self applyVolume];
+}
+
+#pragma mark - 播放进度
+
+- (void)startProgressTimer {
+    [self stopProgressTimer];
+    __weak typeof(self) w = self;
+    self.progressTimer = [NSTimer timerWithTimeInterval:0.4 repeats:YES block:^(NSTimer *t) {
+        __strong typeof(w) s = w;
+        if (s) [s updateProgressUI];
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:self.progressTimer forMode:NSRunLoopCommonModes];
+}
+
+- (void)stopProgressTimer {
+    [self.progressTimer invalidate];
+    self.progressTimer = nil;
+}
+
+- (void)updateProgressUI {
+    if (!_progressSlider || _progressSlider.isTracking) return;
+    AVAudioPlayer *ap = self.audioPlayer;
+    if (ap && ap.duration > 0.01) {
+        _progressSlider.value = (float)(ap.currentTime / ap.duration);
+        return;
+    }
+    AVPlayer *vp = self.videoMusicPlayer;
+    if (vp && vp.currentItem) {
+        double total = CMTimeGetSeconds(vp.currentItem.duration);
+        double cur = CMTimeGetSeconds(vp.currentTime);
+        if (total > 0.01 && !isnan(total)) _progressSlider.value = (float)(cur / total);
+    }
+}
+
+- (void)progressSeek:(UISlider *)sender {
+    AVAudioPlayer *ap = self.audioPlayer;
+    if (ap && ap.duration > 0.01) {
+        ap.currentTime = sender.value * ap.duration;
+        return;
+    }
+    AVPlayer *vp = self.videoMusicPlayer;
+    if (vp && vp.currentItem) {
+        double total = CMTimeGetSeconds(vp.currentItem.duration);
+        if (total > 0.01 && !isnan(total)) {
+            [vp seekToTime:CMTimeMakeWithSeconds(sender.value * total, 600)
+           toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+        }
+    }
 }
 
 #pragma mark - 长按清理

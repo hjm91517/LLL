@@ -206,11 +206,6 @@ static void LLLInit(void) {
 
             lllLogDirectorySnapshot();
 
-            // 启动动画：等宿主第一帧稳住再盖上去
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                LLLShowSplash();
-            });
 
             // 实验开关：只有手动放了 LLL_PATCH_BUJI 才动手
             if (LLLFileExists(@"LLL_PATCH_BUJI")) {

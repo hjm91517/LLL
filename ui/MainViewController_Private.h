@@ -36,6 +36,10 @@ typedef NS_ENUM(NSInteger, BGSwitchMode) {
 - (void)tintSwitchesIn:(UIView *)view color:(UIColor *)color;
 - (void)applyVolume;
 - (void)volumeChanged:(UISlider *)sender;
+- (void)progressSeek:(UISlider *)sender;
+- (void)startProgressTimer;
+- (void)stopProgressTimer;
+- (void)updateProgressUI;
 - (void)saveQ;
 - (void)loadQ;
 - (void)reloadSrcData;

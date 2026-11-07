@@ -27,6 +27,9 @@
 @property (nonatomic, strong) AVPlayer *videoMusicPlayer;
 @property (nonatomic, strong) AVPlayer *cloudPlayer;
 @property (nonatomic, strong) UISlider *volumeSlider;
+@property (nonatomic, strong) UISlider *progressSlider;
+@property (nonatomic, strong) UILabel *nowPlayingLabel;
+@property (nonatomic, strong) NSTimer *progressTimer;
 
 @property (nonatomic, assign) BOOL bgVideoWasPlaying;
 
