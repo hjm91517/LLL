@@ -215,11 +215,15 @@ static BOOL sameFile(NSString *a, NSString *b) {
     return da && db && fabs([da timeIntervalSinceDate:db]) < 1.0;
 }
 
+// 容错版本：单个文件失败不影响整体，只要落了一个文件就返回 YES。
+// 旧实现只要碰到一个写不进去的文件就整包判失败，日志里全是 FAIL 但其实文件已经写进去了。
 static BOOL mergeDir(NSString *srcDir, NSString *dstDir) {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:srcDir error:nil];
     if (!items) return NO;
     ensureDir(dstDir);
+
+    BOOL touched = NO;
 
     for (NSString *item in items) {
         if ([item isEqualToString:@"manifest.json"] || [item isEqualToString:@"pack_manifest.json"]) continue;
@@ -230,15 +234,20 @@ static BOOL mergeDir(NSString *srcDir, NSString *dstDir) {
         [fm fileExistsAtPath:src isDirectory:&isDir];
 
         if (isDir) {
-            if (!mergeDir(src, dst)) return NO;
-        } else if ([fm fileExistsAtPath:dst]) {
-            if (sameFile(src, dst)) continue;
-            if (!mergeFile(src, dst)) return NO;
-        } else {
-            if (![fm copyItemAtPath:src toPath:dst error:nil]) return NO;
+            if (mergeDir(src, dst)) touched = YES;
+            continue;
         }
+
+        if ([fm fileExistsAtPath:dst] && sameFile(src, dst)) { touched = YES; continue; }
+        if ([fm fileExistsAtPath:dst] && mergeFile(src, dst)) { touched = YES; continue; }
+
+        // 最后一招：删了重拷
+        if ([fm fileExistsAtPath:dst]) [fm removeItemAtPath:dst error:nil];
+        if ([fm copyItemAtPath:src toPath:dst error:nil]) { touched = YES; continue; }
+
+        lllLog(@"!!! 写入失败: %@", dst);
     }
-    return YES;
+    return touched;
 }
 
 static BOOL copyDir(NSString *s, NSString *d, BOOL ow, NSString *skip) {

@@ -1,0 +1,34 @@
+//
+//  LLLUiKit.h
+//  自制 UI 组件：启动动画 / 弹层 / 列表选择
+//  全部不用 UIAlertController，全部走自己的 window，随便哪层都能弹。
+//
+
+#import <UIKit/UIKit.h>
+
+NS_ASSUME_NONNULL_BEGIN
+
+/// 启动动画："欢迎使用材质注入器"
+void LLLShowSplash(void);
+
+/// 通用弹层（底部卡片）。buttons 里每一项是一个按钮标题，回调给下标。
+void LLLShowSheet(NSString *title,
+                  NSString *message,
+                  NSArray<NSString *> *buttons,
+                  BOOL destructiveLast,
+                  void (^ _Nullable cb)(NSInteger index));
+
+/// 列表选择弹层（自带滚动，条数多了也不炸）
+void LLLShowList(NSString *title,
+                 NSString *message,
+                 NSArray<NSString *> *items,
+                 void (^ _Nullable cb)(NSInteger index));
+
+/// 自定义卡片：自己往里塞控件，close 传 nil 表示不自动关
+void LLLShowCustomCard(CGFloat width, CGFloat maxHeight,
+                       void (^build)(UIView *card, void (^close)(void)));
+
+/// 轻提示（不用系统 HUD）
+void LLLShowHUD(NSString *text, NSTimeInterval duration);
+
+NS_ASSUME_NONNULL_END

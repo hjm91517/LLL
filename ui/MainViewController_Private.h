@@ -34,6 +34,8 @@ typedef NS_ENUM(NSInteger, BGSwitchMode) {
 - (void)closePanel;
 - (void)applyTheme;
 - (void)tintSwitchesIn:(UIView *)view color:(UIColor *)color;
+- (void)applyVolume;
+- (void)volumeChanged:(UISlider *)sender;
 - (void)saveQ;
 - (void)loadQ;
 - (void)reloadSrcData;

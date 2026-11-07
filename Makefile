@@ -28,11 +28,13 @@ MaterialPackManager_FILES = \
     ui/MainViewController.m \
     ui/MainViewController+SettingsBackground.m \
     ui/MainViewController+Features.m \
+    ui/LLLUiKit.m \
+    ui/LLLCloudMusic.m \
     Entry.m
 
 # ImageIO 必须显式链接：BaseComponents.m 用 CGImageSourceCreateWithURL 做缩略图，
 # 不写 -framework ImageIO 在真机上会走不到，链接期也容易莫名 undefined。
-MaterialPackManager_FRAMEWORKS = UIKit Foundation AVFoundation PhotosUI ImageIO
+MaterialPackManager_FRAMEWORKS = UIKit Foundation AVFoundation PhotosUI ImageIO CoreImage CoreGraphics
 
 MaterialPackManager_CFLAGS = \
     -fobjc-arc \

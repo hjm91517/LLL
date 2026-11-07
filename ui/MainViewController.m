@@ -5,6 +5,8 @@
 #import "FloatMonitor.h"
 #import "PluginInfo.h"
 #import "LLLAnim.h"
+#import "LLLUiKit.h"
+#import "LLLCloudMusic.h"
 #import <objc/runtime.h>
 
 #import "MainViewController+SettingsBackground.h"
@@ -302,6 +304,47 @@ static void lllReload(UITableView *tv) {
     [_modeBtn addTarget:self action:@selector(switchLoopMode) forControlEvents:UIControlEventTouchUpInside];
     [_musicControlBar addSubview:_modeBtn];
 
+    // 音量条
+    _volumeSlider = [[UISlider alloc] init];
+    _volumeSlider.translatesAutoresizingMaskIntoConstraints = NO;
+    _volumeSlider.minimumValue = 0.0f;
+    _volumeSlider.maximumValue = 1.0f;
+    float savedVol = [[NSUserDefaults standardUserDefaults] floatForKey:@"LLL.volume"];
+    _volumeSlider.value = (savedVol > 0.001f) ? savedVol : 0.8f;
+    _volumeSlider.minimumTrackTintColor = LLLAccentColor();
+    _volumeSlider.maximumTrackTintColor = [UIColor colorWithWhite:1 alpha:0.18];
+    _volumeSlider.thumbTintColor = UIColor.whiteColor;
+    [_volumeSlider addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged];
+    [_musicControlBar addSubview:_volumeSlider];
+
+    UIButton *cloudBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    cloudBtn.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg =
+            [UIImageSymbolConfiguration configurationWithPointSize:16 weight:UIImageSymbolWeightSemibold];
+        [cloudBtn setImage:[UIImage systemImageNamed:@"cloud.fill" withConfiguration:cfg]
+                  forState:UIControlStateNormal];
+    }
+    [cloudBtn setTitle:@"云" forState:UIControlStateNormal];
+    cloudBtn.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
+    cloudBtn.tintColor = UIColor.whiteColor;
+    cloudBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
+    cloudBtn.layer.cornerRadius = 16;
+    [cloudBtn addTarget:self action:@selector(openCloudMusic) forControlEvents:UIControlEventTouchUpInside];
+    [_musicControlBar addSubview:cloudBtn];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_volumeSlider.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:20],
+        [_volumeSlider.bottomAnchor constraintEqualToAnchor:_musicControlBar.bottomAnchor constant:-14],
+        [_volumeSlider.heightAnchor constraintEqualToConstant:26],
+        [_volumeSlider.trailingAnchor constraintEqualToAnchor:cloudBtn.leadingAnchor constant:-12],
+
+        [cloudBtn.trailingAnchor constraintEqualToAnchor:_musicControlBar.trailingAnchor constant:-16],
+        [cloudBtn.bottomAnchor constraintEqualToAnchor:_musicControlBar.bottomAnchor constant:-10],
+        [cloudBtn.widthAnchor constraintEqualToConstant:44],
+        [cloudBtn.heightAnchor constraintEqualToConstant:34],
+    ]];
+
     [NSLayoutConstraint activateConstraints:@[
         [_ab.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:10],
         [_ab.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor constant:-10],
@@ -316,7 +359,7 @@ static void lllReload(UITableView *tv) {
         [_musicControlBar.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:10],
         [_musicControlBar.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor constant:-10],
         [_musicControlBar.bottomAnchor constraintEqualToAnchor:cv.bottomAnchor constant:-12],
-        [_musicControlBar.heightAnchor constraintEqualToConstant:60],
+        [_musicControlBar.heightAnchor constraintEqualToConstant:100],
 
         [clr.leadingAnchor constraintEqualToAnchor:_ab.leadingAnchor],
         [clr.centerYAnchor constraintEqualToAnchor:_ab.centerYAnchor],
@@ -357,27 +400,27 @@ static void lllReload(UITableView *tv) {
         [psv.widthAnchor constraintEqualToAnchor:pclr.widthAnchor],
 
         [prevBtn.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:20],
-        [prevBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.centerYAnchor],
+        [prevBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:30],
         [prevBtn.widthAnchor constraintEqualToConstant:40],
         [prevBtn.heightAnchor constraintEqualToConstant:40],
 
         [_speedBtn.leadingAnchor constraintEqualToAnchor:prevBtn.trailingAnchor constant:12],
-        [_speedBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.centerYAnchor],
+        [_speedBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:30],
         [_speedBtn.widthAnchor constraintEqualToConstant:52],
         [_speedBtn.heightAnchor constraintEqualToConstant:40],
 
         [_playPauseBtn.centerXAnchor constraintEqualToAnchor:_musicControlBar.centerXAnchor],
-        [_playPauseBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.centerYAnchor],
+        [_playPauseBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:30],
         [_playPauseBtn.widthAnchor constraintEqualToConstant:48],
         [_playPauseBtn.heightAnchor constraintEqualToConstant:48],
 
         [_modeBtn.trailingAnchor constraintEqualToAnchor:nextBtn.leadingAnchor constant:-12],
-        [_modeBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.centerYAnchor],
+        [_modeBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:30],
         [_modeBtn.widthAnchor constraintEqualToConstant:52],
         [_modeBtn.heightAnchor constraintEqualToConstant:40],
 
         [nextBtn.trailingAnchor constraintEqualToAnchor:_musicControlBar.trailingAnchor constant:-20],
-        [nextBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.centerYAnchor],
+        [nextBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:30],
         [nextBtn.widthAnchor constraintEqualToConstant:40],
         [nextBtn.heightAnchor constraintEqualToConstant:40]
     ]];
@@ -428,6 +471,7 @@ static void lllReload(UITableView *tv) {
         if (!s) return;
         [s setTab:s.tab1 active:YES];
         [s applyTheme];
+        [s applyVolume];
     });
 }
 
@@ -506,6 +550,7 @@ static void lllReload(UITableView *tv) {
     if (_indicator) {
         _indicator.layer.borderColor = [accent colorWithAlphaComponent:0.55].CGColor;
     }
+    if (_volumeSlider) _volumeSlider.minimumTrackTintColor = accent;
     if (_headerSub) {
         _headerSub.textColor = [accent colorWithAlphaComponent:0.85];
     }
@@ -844,13 +889,36 @@ static void lllReload(UITableView *tv) {
 }
 
 - (void)confirm:(NSString *)t msg:(NSString *)m dest:(BOOL)d cb:(void(^)(void))cb {
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:t message:m preferredStyle:UIAlertControllerStyleAlert];
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [ac addAction:[UIAlertAction actionWithTitle:d?@"确定":@"好" style:d?UIAlertActionStyleDestructive:UIAlertActionStyleDefault handler:^(UIAlertAction *_){ if(cb)cb(); }]];
-    [self presentViewController:ac animated:YES completion:nil];
+    NSArray *btns = d ? @[@"取消", @"确定"] : @[@"好"];
+    LLLShowSheet(t, m, btns, d, ^(NSInteger idx) {
+        if (d) { if (idx == 1 && cb) cb(); }
+        else   { if (cb) cb(); }
+    });
 }
 
-- (void)showAlert:(NSString *)t msg:(NSString *)m { if (_dis) return; [self confirm:t msg:m dest:NO cb:nil]; }
+- (void)showAlert:(NSString *)t msg:(NSString *)m {
+    if (_dis) return;
+    LLLShowSheet(t, m, @[@"好"], NO, nil);
+}
+
+#pragma mark - 音量
+
+- (void)applyVolume {
+    float v = [[NSUserDefaults standardUserDefaults] floatForKey:@"LLL.volume"];
+    if (v <= 0.001f) v = 0.8f;
+
+    self.audioPlayer.volume = v;
+    self.videoMusicPlayer.volume = v;
+    self.cloudPlayer.volume = v;
+    self.bgPlayer.volume = v * 0.55f;
+
+    if (_volumeSlider && fabsf(_volumeSlider.value - v) > 0.001f) _volumeSlider.value = v;
+}
+
+- (void)volumeChanged:(UISlider *)sender {
+    [[NSUserDefaults standardUserDefaults] setFloat:sender.value forKey:@"LLL.volume"];
+    [self applyVolume];
+}
 
 #pragma mark - 长按清理
 

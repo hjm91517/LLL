@@ -265,13 +265,16 @@ NSString* caizhiPath(void)    { return mkDir(@"Caizhi", @"材质包文件夹放�
 NSString* mcpPluginsPath(void){ return mkDir(@"mcp_plugins", @"插件文件夹放入此目录"); }
 NSString* pfPath(void)        { return mkDir(@"pf", nil); }
 
+// 固定 UUID：每次注入都是同一个包，不会在游戏里堆出一堆重复条目
+static NSString* const kLLLPackUUID    = @"f3a1c7d2-8b64-4e19-9c05-4d7a2e6b91f8";
+static NSString* const kLLLModuleUUID  = @"a7c4e91b-2f38-4d6a-b5c1-8e3f9a0d7c26";
+
 NSString* targetPath(void) {
     static NSString *p;
     static dispatch_once_t t;
     dispatch_once(&t, ^{
         NSFileManager *fm = NSFileManager.defaultManager;
 
-        // 1) 手动指定优先
         NSString *override = [[NSUserDefaults standardUserDefaults] stringForKey:@"LLL.targetDir"];
         BOOL isDir = NO;
         if (override.length && [fm fileExistsAtPath:override isDirectory:&isDir] && isDir) {
@@ -279,9 +282,15 @@ NSString* targetPath(void) {
             return;
         }
 
-        // 2) 3.10 走自建资源包（固定目录，配合 global_resource_packs.json 注册）
-        p = [resourcePacksRootPath() stringByAppendingPathComponent:@"LLL_inject"];
+        // 3.10 的包目录按 "<uuid>_resource_packs_<名字>" 命名（游戏自己的包就是这个格式）。
+        // 裸名字 LLL_inject 会被扫描器直接跳过 —— 这就是上一版文件全写了但游戏不认的原因。
+        p = [resourcePacksRootPath() stringByAppendingPathComponent:
+             [kLLLPackUUID stringByAppendingString:@"_resource_packs_lll"]];
         ensureDir(p);
+
+        // 迁移：清掉旧版留下的裸目录
+        NSString *legacy = [resourcePacksRootPath() stringByAppendingPathComponent:@"LLL_inject"];
+        if ([fm fileExistsAtPath:legacy]) [fm removeItemAtPath:legacy error:nil];
     });
     return p;
 }
@@ -425,11 +434,12 @@ void lllLog(NSString *fmt, ...) {
 NSArray<NSString*>* injectionTargetDirs(void) {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSMutableArray *out = [NSMutableArray array];
+    NSString *leaf = targetPath().lastPathComponent;
 
-    void (^addDir)(NSString *) = ^(NSString *p) {
-        if (!p.length) return;
-        if ([out containsObject:p]) return;
-        [out addObject:p];
+    void (^addDir)(NSString *) = ^(NSString *path) {
+        if (!path.length) return;
+        if ([out containsObject:path]) return;
+        [out addObject:path];
     };
 
     addDir(targetPath());
@@ -438,20 +448,40 @@ NSArray<NSString*>* injectionTargetDirs(void) {
         BOOL isDir = NO;
         if (![fm fileExistsAtPath:base isDirectory:&isDir] || !isDir) continue;
 
-        addDir([base stringByAppendingPathComponent:@"development_resource_packs/LLL_inject"]);
-        addDir([base stringByAppendingPathComponent:@"resource_packs/LLL_inject"]);
+        NSString *dev = [base stringByAppendingPathComponent:@"development_resource_packs"];
+        BOOL devDir = NO;
+        if ([fm fileExistsAtPath:dev isDirectory:&devDir] && devDir) {
+            addDir([dev stringByAppendingPathComponent:leaf]);
+        }
 
-        NSString *mp = [base stringByAppendingPathComponent:@"minecraftpe"];
-        BOOL mpDir = NO;
-        if ([fm fileExistsAtPath:mp isDirectory:&mpDir] && mpDir) {
-            addDir([mp stringByAppendingPathComponent:@"development_resource_packs/LLL_inject"]);
-            addDir([mp stringByAppendingPathComponent:@"resource_packs/LLL_inject"]);
+        NSString *rp = [base stringByAppendingPathComponent:@"resource_packs"];
+        BOOL rpDir = NO;
+        if ([fm fileExistsAtPath:rp isDirectory:&rpDir] && rpDir) {
+            addDir([rp stringByAppendingPathComponent:leaf]);
         }
     }
     return out;
 }
 
 // 把游戏根下一层的目录结构完整打进日志 —— 这是唯一能确认 3.10 真实布局的办法
+static void LLLLogChildren(NSString *path, int depth, NSString *indent) {
+    if (depth <= 0) return;
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSArray<NSString*> *items =
+        [[fm contentsOfDirectoryAtPath:path error:nil] sortedArrayUsingSelector:@selector(compare:)];
+    for (NSString *it in items) {
+        if ([it hasPrefix:@"."]) continue;
+        NSString *full = [path stringByAppendingPathComponent:it];
+        BOOL d = NO;
+        [fm fileExistsAtPath:full isDirectory:&d];
+        if (d) {
+            NSUInteger n = [fm contentsOfDirectoryAtPath:full error:nil].count;
+            lllLog(@"%@  - %@/  (%lu)", indent, it, (unsigned long)n);
+            if (depth > 1) LLLLogChildren(full, depth - 1, [indent stringByAppendingString:@"      "]);
+        }
+    }
+}
+
 void lllLogDirectorySnapshot(void) {
     NSFileManager *fm = NSFileManager.defaultManager;
     for (NSString *base in candidateGameBases()) {
@@ -465,94 +495,24 @@ void lllLogDirectorySnapshot(void) {
             NSString *full = [base stringByAppendingPathComponent:it];
             BOOL d = NO;
             [fm fileExistsAtPath:full isDirectory:&d];
-            NSInteger n = d ? (NSInteger)[fm contentsOfDirectoryAtPath:full error:nil].count : -1;
-            if (d) lllLog(@"    [D] %@  (%ld)", it, (long)n);
-            else   lllLog(@"    [F] %@", it);
+            if (!d) {
+                lllLog(@"    [F] %@", it);
+                continue;
+            }
+            NSUInteger n = [fm contentsOfDirectoryAtPath:full error:nil].count;
+            lllLog(@"    [D] %@  (%lu)", it, (unsigned long)n);
+
+            // 这几个目录看两层，其它只看一层
+            BOOL deep = [it isEqualToString:@"resource_packs"] ||
+                        [it isEqualToString:@"development_resource_packs"] ||
+                        [it isEqualToString:@"behavior_packs"] ||
+                        [it isEqualToString:@"packcache"] ||
+                        [it isEqualToString:@"storge"] ||
+                        [it isEqualToString:@"minecraftpe"];
+            if (deep) LLLLogChildren(full, 2, @"        ");
         }
     }
 }
-
-#pragma mark - 主题色
-
-static UIColor *LLLThemeDefaultPreset(LLLThemeIndex i) {
-    switch (i) {
-        case LLLThemeGreen:  return [UIColor colorWithRed:0.16 green:0.82 blue:0.45 alpha:1.0];
-        case LLLThemePurple: return [UIColor colorWithRed:0.62 green:0.40 blue:1.00 alpha:1.0];
-        case LLLThemeOrange: return [UIColor colorWithRed:0.95 green:0.52 blue:0.12 alpha:1.0];
-        case LLLThemePink:   return [UIColor colorWithRed:1.00 green:0.36 blue:0.62 alpha:1.0];
-        case LLLThemeBlue:
-        default:             return [UIColor colorWithRed:0.22 green:0.60 blue:1.00 alpha:1.0];
-    }
-}
-
-UIColor *LLLAccentColorFor(LLLThemeIndex i) {
-    if (i < 0 || i >= LLLThemeCount) i = LLLThemeBlue;
-    return LLLThemeDefaultPreset(i);
-}
-
-NSInteger LLLThemeIndexValue(void) {
-    NSInteger v = [[NSUserDefaults standardUserDefaults] integerForKey:@"LLL.theme"];
-    if (v < 0 || v >= LLLThemeCount) v = LLLThemeBlue;
-    return v;
-}
-
-void LLLSetThemeIndex(NSInteger i) {
-    if (i < 0 || i >= LLLThemeCount) i = LLLThemeBlue;
-    [[NSUserDefaults standardUserDefaults] setInteger:i forKey:@"LLL.theme"];
-}
-
-UIColor *LLLAccentColor(void) {
-    return LLLAccentColorFor((LLLThemeIndex)LLLThemeIndexValue());
-}
-
-NSString *LLLThemeName(LLLThemeIndex i) {
-    switch (i) {
-        case LLLThemeGreen:  return @"\u9752";
-        case LLLThemePurple: return @"\u7d2b";
-        case LLLThemeOrange: return @"\u6a59";
-        case LLLThemePink:   return @"\u7c89";
-        default:             return @"\u84dd";
-    }
-}
-
-#pragma mark - behavior_packs（个人存档注入用）
-
-NSArray<NSString*>* behaviorPacksDirs(void) {
-    NSFileManager *fm = NSFileManager.defaultManager;
-    NSString *base = [neteaseGameBasePath() stringByAppendingPathComponent:@"behavior_packs"];
-    NSArray<NSString*> *items = [fm contentsOfDirectoryAtPath:base error:nil];
-    NSMutableArray *out = [NSMutableArray array];
-    for (NSString *d in items) {
-        if ([d hasPrefix:@"."]) continue;
-        NSString *full = [base stringByAppendingPathComponent:d];
-        BOOL isDir = NO;
-        if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) [out addObject:full];
-    }
-    return out;
-}
-
-// global_resource_packs.json 的所有可能落点
-NSArray<NSString*>* globalPackJSONCandidates(void) {
-    NSString *base = neteaseGameBasePath();
-    return @[
-        [base stringByAppendingPathComponent:@"global_resource_packs.json"],
-        [base stringByAppendingPathComponent:@"resource_packs/global_resource_packs.json"],
-        [base stringByAppendingPathComponent:@"minecraftpe/global_resource_packs.json"],
-        [base stringByAppendingPathComponent:@"resource_packs/vanilla/global_resource_packs.json"],
-        [[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/games/com.netease"]
-            stringByAppendingPathComponent:@"global_resource_packs.json"],
-    ];
-}
-
-NSArray<NSString*>* legacyPatchDirs(void) {
-    return detectLegacyPatchDirs();
-}
-
-#pragma mark - 自建注入包
-
-// 固定 UUID：每次注入都是同一个包，不会在游戏里堆出一堆重复条目
-static NSString* const kLLLPackUUID    = @"f3a1c7d2-8b64-4e19-9c05-4d7a2e6b91f8";
-static NSString* const kLLLModuleUUID  = @"a7c4e91b-2f38-4d6a-b5c1-8e3f9a0d7c26";
 
 BOOL lllEnsurePackManifestAt(NSString *dir) {
     if (!dir.length) return NO;

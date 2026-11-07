@@ -3,8 +3,12 @@
 #import "ResourceManager.h"
 #import "BaseComponents.h"
 #import "LLLAnim.h"
+#import "LLLUiKit.h"
+#import "LLLCloudMusic.h"
 #import <objc/runtime.h>
 #import <AVFoundation/AVFoundation.h>
+
+static void (^gLLLCloseCloudCard)(void) = nil;
 
 @implementation MainViewController (Features)
 
@@ -108,6 +112,7 @@
 }
 
 - (void)updateMusicUI {
+    [self applyVolume];
     if (@available(iOS 13.0, *)) {
         [self.playPauseBtn setImage:[UIImage systemImageNamed:self.isPlaying ? @"pause.fill" : @"play.fill"] forState:UIControlStateNormal];
     }
@@ -162,6 +167,111 @@
     } else {
         [self nextMusic];
     }
+}
+
+#pragma mark - 网易云
+
+- (void)dismissCloudCard {
+    if (gLLLCloseCloudCard) { gLLLCloseCloudCard(); gLLLCloseCloudCard = nil; }
+}
+
+- (void)openCloudMusic {
+    LLLCloudMusic *cm = [LLLCloudMusic shared];
+    if (cm.loggedIn) { [self showLikedSongs]; return; }
+
+    __block UIImageView *qrView = nil;
+    __block UILabel *hint = nil;
+
+    LLLShowCustomCard(320, 520, ^(UIView *card, void (^close)(void)) {
+        gLLLCloseCloudCard = [close copy];
+        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
+        card.frame = CGRectMake(0, 0, w, 392);
+
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, w - 32, 24)];
+        t.text = @"网易云音乐 · 扫码登录";
+        t.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+        t.textColor = UIColor.whiteColor;
+        t.textAlignment = NSTextAlignmentCenter;
+        [card addSubview:t];
+
+        qrView = [[UIImageView alloc] initWithFrame:CGRectMake((w - 200) / 2, 56, 200, 200)];
+        qrView.backgroundColor = UIColor.whiteColor;
+        qrView.layer.cornerRadius = 10;
+        qrView.clipsToBounds = YES;
+        qrView.contentMode = UIViewContentModeScaleAspectFit;
+        [card addSubview:qrView];
+
+        hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 268, w - 32, 18)];
+        hint.text = @"正在获取二维码…";
+        hint.font = [UIFont systemFontOfSize:12];
+        hint.textColor = [UIColor colorWithWhite:0.7 alpha:1];
+        hint.textAlignment = NSTextAlignmentCenter;
+        [card addSubview:hint];
+
+        UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
+        cancel.frame = CGRectMake(14, 300, w - 28, 44);
+        cancel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
+        cancel.layer.cornerRadius = 12;
+        [cancel setTitle:@"取消" forState:UIControlStateNormal];
+        [cancel setTitleColor:[UIColor colorWithWhite:0.78 alpha:1] forState:UIControlStateNormal];
+        cancel.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+        [cancel addTarget:self action:@selector(dismissCloudCard) forControlEvents:UIControlEventTouchUpInside];
+        [card addSubview:cancel];
+    });
+
+    [cm startLoginWithQR:^(UIImage *qr, NSString *status) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (qr) qrView.image = qr;
+            if (status.length) hint.text = status;
+        });
+    } completion:^(BOOL ok, NSString *msg) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self dismissCloudCard];
+            ShowToast(msg.length ? msg : (ok ? @"登录成功" : @"登录失败"), 2.2, YES, !ok);
+            PlayHaptic(ok);
+            if (ok) [self showLikedSongs];
+        });
+    }];
+}
+
+- (void)showLikedSongs {
+    ShowToast(@"正在拉取「我喜欢的音乐」…", 1.2, YES, NO);
+    [[LLLCloudMusic shared] loadLikedSongs:^(NSArray<NSDictionary *> *songs, NSString *err) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!songs.count) {
+                ShowToast(err.length ? err : @"列表为空", 2.2, YES, YES);
+                PlayHaptic(NO);
+                return;
+            }
+            NSMutableArray *titles = [NSMutableArray arrayWithCapacity:songs.count];
+            for (NSDictionary *s in songs) {
+                [titles addObject:[NSString stringWithFormat:@"%@ - %@", s[@"name"], s[@"artist"]]];
+            }
+            LLLShowList(@"我喜欢的音乐",
+                        [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count],
+                        titles,
+                        ^(NSInteger idx) {
+                if (idx >= 0 && idx < (NSInteger)songs.count) [self playCloudSong:songs[(NSUInteger)idx]];
+            });
+        });
+    }];
+}
+
+- (void)playCloudSong:(NSDictionary *)song {
+    NSNumber *sid = song[@"id"];
+    __weak typeof(self) w = self;
+    [[LLLCloudMusic shared] resolvePlayURL:sid done:^(NSURL *url, NSString *err) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (!s) return;
+            if (!url) { ShowToast(err.length ? err : @"拿不到播放地址", 2.2, YES, YES); return; }
+            [s.cloudPlayer pause];
+            s.cloudPlayer = [AVPlayer playerWithURL:url];
+            [s applyVolume];
+            [s.cloudPlayer play];
+            ShowToast([NSString stringWithFormat:@"播放: %@", song[@"name"]], 2, YES, NO);
+        });
+    }];
 }
 
 #pragma mark - 材质注入
@@ -273,29 +383,13 @@
         return;
     }
 
-    UIAlertController *ac =
-        [UIAlertController alertControllerWithTitle:@"选择模组缓存文件夹"
-                                            message:@"插件文件夹会合并进你选中的那个目录"
-                                     preferredStyle:UIAlertControllerStyleActionSheet];
-
-    for (NSString *d in dirs) {
-        NSString *name = d.lastPathComponent;
-        [ac addAction:[UIAlertAction actionWithTitle:name
-                                              style:UIAlertActionStyleDefault
-                                            handler:^(UIAlertAction *action) {
-            [self doInjectPluginsToDir:d];
-        }]];
-    }
-    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-
-    UIPopoverPresentationController *pop = ac.popoverPresentationController;
-    if (pop) {
-        pop.sourceView = self.view;
-        pop.sourceRect = CGRectMake(self.view.bounds.size.width * 0.5,
-                                    self.view.bounds.size.height - 60, 1, 1);
-        pop.permittedArrowDirections = 0;
-    }
-    [self presentViewController:ac animated:YES completion:nil];
+    LLLShowList(@"选择模组缓存文件夹", @"插件会合并进你选中的那个目录",
+                [dirs valueForKey:@"lastPathComponent"],
+                ^(NSInteger idx) {
+        if (idx >= 0 && idx < (NSInteger)dirs.count) {
+            [self doInjectPluginsToDir:dirs[(NSUInteger)idx]];
+        }
+    });
 }
 
 - (void)doInjectPluginsToDir:(NSString *)dir {

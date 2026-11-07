@@ -25,6 +25,8 @@
 @property (nonatomic, strong) UIButton *playPauseBtn, *speedBtn, *modeBtn;
 @property (nonatomic, strong) AVAudioPlayer *audioPlayer;
 @property (nonatomic, strong) AVPlayer *videoMusicPlayer;
+@property (nonatomic, strong) AVPlayer *cloudPlayer;
+@property (nonatomic, strong) UISlider *volumeSlider;
 
 @property (nonatomic, assign) BOOL bgVideoWasPlaying;
 
