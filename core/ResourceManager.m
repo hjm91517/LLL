@@ -221,6 +221,7 @@ static BOOL sameFile(NSString *a, NSString *b) {
 
 static NSString *sJournalRoot = nil;
 static NSMutableArray *sJournalEntries = nil;
+static NSMutableSet *sJournaledRels = nil;
 
 static NSString *LLLBackupRoot(void) {
     return [docsPath() stringByAppendingPathComponent:@".lll_backup"];
@@ -247,6 +248,8 @@ static void LLLJournalNote(NSString *dst) {
         if (sz > 2ULL * 1024 * 1024) {          // 超过 2MB 不备份，避免拖慢注入
             lllLog(@"跳过大文件备份: %@", dst.lastPathComponent);
             [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel, @"bak": @"" }];
+            if (!sJournaledRels) sJournaledRels = [NSMutableSet set];
+            [sJournaledRels addObject:rel];
             return;
         }
         NSString *key = LLLStableKeyPublic(sJournalRoot);
@@ -260,6 +263,8 @@ static void LLLJournalNote(NSString *dst) {
     }
 
     [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel, @"bak": bak }];
+    if (!sJournaledRels) sJournaledRels = [NSMutableSet set];
+    [sJournaledRels addObject:rel];
 }
 
 static NSMutableArray *gAllJournal = nil;
@@ -316,6 +321,22 @@ static NSString *resolvePackRoot(NSString *dir, int depth) {
     }
     if (dirs.count != 1) return dir;          // 只有唯一子目录时才下钻，避免乱猜
     return resolvePackRoot(dirs.firstObject, depth - 1);
+}
+
+
+static void LLLCollectRels(NSString *root, NSString *rel, NSMutableArray *out) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *full = rel.length ? [root stringByAppendingPathComponent:rel] : root;
+    NSArray<NSString*> *items = [fm contentsOfDirectoryAtPath:full error:nil];
+    for (NSString *it in items) {
+        if ([it hasPrefix:@"."]) continue;
+        if ([it isEqualToString:@"manifest.json"] || [it isEqualToString:@"pack_manifest.json"]) continue;
+        NSString *r = rel.length ? [rel stringByAppendingPathComponent:it] : it;
+        BOOL isDir = NO;
+        [fm fileExistsAtPath:[root stringByAppendingPathComponent:r] isDirectory:&isDir];
+        if (isDir) LLLCollectRels(root, r, out);
+        else       [out addObject:r];
+    }
 }
 
 static NSString *dirName(NSString *p) {
@@ -505,6 +526,7 @@ static NSUInteger lllCountFiles(NSString *dir) {
                 // 开一本新账
                 sJournalRoot = t;
                 sJournalEntries = [NSMutableArray array];
+                sJournaledRels = [NSMutableSet set];
 
                 lllEnsurePackManifestAt(t);
                 BOOL r = mergeDir(srcRoot, t);
@@ -514,6 +536,17 @@ static NSUInteger lllCountFiles(NSString *dir) {
                 lllLogPackRootFiles(t);
                 lllStripSignatures(t);
                 lllRewriteFolderMD5(t);
+
+                // 补齐：源包里每个文件都必须在账本里，否则清理会漏
+                NSMutableArray *rels = [NSMutableArray array];
+                LLLCollectRels(srcRoot, @"", rels);
+                NSUInteger补 = 0;
+                for (NSString *r in rels) {
+                    if ([sJournaledRels containsObject:r]) continue;
+                    [sJournalEntries addObject:@{ @"target": t, @"rel": r, @"bak": @"" }];
+                    补++;
+                }
+                if (补 > 0) lllLog(@"   补记账 %lu 条", (unsigned long)补);
 
                 LLLJournalCommit(sJournalEntries);
                 sJournalRoot = nil;
@@ -619,7 +652,7 @@ static NSUInteger lllCountFiles(NSString *dir) {
     });
 }
 
-+ (void)cleanTarget:(void(^)(BOOL))cb {
++ (void)cleanTarget:(void(^)(BOOL, NSUInteger, NSUInteger, NSUInteger))cb {
     dispatch_async(g_fileQueue(), ^{
         // 按账本精确还原：覆盖过的把原文件拷回去，新建的直接删。
         // 游戏自己的资源一个都不会动。
@@ -628,9 +661,10 @@ static NSUInteger lllCountFiles(NSString *dir) {
         id j = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
 
         NSFileManager *fm = [NSFileManager defaultManager];
-        NSUInteger restored = 0, removed = 0;
+        NSUInteger restored = 0, removed = 0, total = 0;
 
         if ([j isKindOfClass:[NSArray class]]) {
+            total = [(NSArray *)j count];
             for (NSDictionary *e in (NSArray *)j) {
                 if (![e isKindOfClass:[NSDictionary class]]) continue;
                 NSString *target = e[@"target"];
@@ -658,7 +692,9 @@ static NSUInteger lllCountFiles(NSString *dir) {
         [fm removeItemAtPath:LLLBackupRoot() error:nil];
 
         lllLog(@"清理目标: 还原 %lu 个, 删除 %lu 个", (unsigned long)restored, (unsigned long)removed);
-        dispatch_async(dispatch_get_main_queue(), ^{ if (cb) cb(YES); });
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (cb) cb(YES, restored, removed, total);
+        });
     });
 }
 

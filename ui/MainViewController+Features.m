@@ -507,10 +507,11 @@ static void (^gSearchClose)(void) = nil;
     __weak typeof(self) w = self;
     [self confirm:@"确认清理" msg:@"清空目标目录，保留 pack_manifest.json" dest:YES cb:^{
         [MaterialHUD show:@"清理中..." inView:self.view];
-        [ResourceManager cleanTarget:^(BOOL ok) {
+        [ResourceManager cleanTarget:^(BOOL ok, NSUInteger restored, NSUInteger removed, NSUInteger total) {
             [MaterialHUD dismiss];
             __strong typeof(w) s = w;
-            NSString *m = ok ? @"已清理" : @"失败";
+            NSString *m = [NSString stringWithFormat:@"账本 %lu 条：还原 %lu，删除 %lu",
+                           (unsigned long)total, (unsigned long)restored, (unsigned long)removed];
             [s showAlert:@"完成" msg:m];
             ShowToast(m,1.5,YES,!ok);
             if (ok) PlayHaptic(YES);
