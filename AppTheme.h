@@ -63,6 +63,24 @@
 #define kCardShadowRadius           14.0
 #define kCardShadowOffsetY          4.0
 
+
+#pragma mark - 主题色（可在设置里切换）
+
+typedef NS_ENUM(NSInteger, LLLThemeIndex) {
+    LLLThemeBlue = 0,
+    LLLThemeGreen,
+    LLLThemePurple,
+    LLLThemeOrange,
+    LLLThemePink,
+    LLLThemeCount
+};
+
+UIColor *LLLAccentColor(void);                 // 当前主题强调色
+UIColor *LLLAccentColorFor(LLLThemeIndex i);   // 预设色
+NSInteger LLLThemeIndexValue(void);
+void LLLSetThemeIndex(NSInteger i);
+NSString *LLLThemeName(LLLThemeIndex i);
+
 #pragma mark - 内联工具
 
 // 十六进制颜色：LLLHex(0x2E7BFF, 1.0)

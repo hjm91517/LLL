@@ -1,8 +1,10 @@
-#define kPluginVersion @"26.4.2"
+#define kPluginVersion @"26.5.0"
 
 #define kPluginFeatures @[ \
     @"• 材质包注入与管理（增量注入 / 秒级跳过未变文件）", \
-    @"• 3.10 适配：自建资源包 + global_resource_packs.json 注册", \
+    @"• 3.10 适配：自建资源包 + 全局清单注册 + 旧补丁目录镜像", \
+    @"• 个人存档：MCP 插件注入到 behavior_packs 任选目录", \
+    @"• 主题色可切换（蓝/青/紫/橙/粉）", \
     @"• mcp 插件注入（布吉岛 / EC / Misaki）", \
     @"• 音乐盒（支持 mp3 / mp4 等）", \
     @"• 自定义背景（图片 / 视频 + 定时切换）", \

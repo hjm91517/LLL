@@ -32,6 +32,8 @@ typedef NS_ENUM(NSInteger, BGSwitchMode) {
 - (void)setTab:(UIButton *)tab active:(BOOL)active;
 - (void)setHeader:(NSString *)title sub:(NSString *)sub;
 - (void)closePanel;
+- (void)applyTheme;
+- (void)tintSwitchesIn:(UIView *)view color:(UIColor *)color;
 - (void)saveQ;
 - (void)loadQ;
 - (void)reloadSrcData;

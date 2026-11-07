@@ -242,7 +242,11 @@ static void lllReload(UITableView *tv) {
     UIButton *ec   = [self aBtn:@"注入 EC" ico:@"play.fill" col:kAccentBlue act:@selector(injEC)];
     UIButton *bj   = [self aBtn:@"注入布吉岛" ico:@"play.fill" col:kAccentOrange act:@selector(injBJ)];
     UIButton *ms   = [self aBtn:@"注入 Misaki" ico:@"play.fill" col:kAccentGreen act:@selector(injMisaki)];
-    [_pab addSubview:pclr]; [_pab addSubview:ec]; [_pab addSubview:bj]; [_pab addSubview:ms];
+    UIButton *psv  = [self aBtn:@"个人存档" ico:@"person.crop.circle.badge.plus"
+                            col:[UIColor colorWithRed:0.62 green:0.40 blue:1.00 alpha:1.0]
+                           act:@selector(injectPersonalSave)];
+    [_pab addSubview:pclr]; [_pab addSubview:ec]; [_pab addSubview:bj];
+    [_pab addSubview:ms];   [_pab addSubview:psv];
 
     _musicControlBar = [UIView new]; _musicControlBar.translatesAutoresizingMaskIntoConstraints = NO; _musicControlBar.hidden = YES;
     _musicControlBar.backgroundColor = kBarBackgroundColor;
@@ -342,10 +346,15 @@ static void lllReload(UITableView *tv) {
         [bj.heightAnchor constraintEqualToConstant:40],
         [bj.widthAnchor constraintEqualToAnchor:pclr.widthAnchor],
         [ms.leadingAnchor constraintEqualToAnchor:bj.trailingAnchor constant:8],
-        [ms.trailingAnchor constraintEqualToAnchor:_pab.trailingAnchor],
         [ms.centerYAnchor constraintEqualToAnchor:_pab.centerYAnchor],
         [ms.heightAnchor constraintEqualToConstant:40],
         [ms.widthAnchor constraintEqualToAnchor:pclr.widthAnchor],
+
+        [psv.leadingAnchor constraintEqualToAnchor:ms.trailingAnchor constant:8],
+        [psv.trailingAnchor constraintEqualToAnchor:_pab.trailingAnchor],
+        [psv.centerYAnchor constraintEqualToAnchor:_pab.centerYAnchor],
+        [psv.heightAnchor constraintEqualToConstant:40],
+        [psv.widthAnchor constraintEqualToAnchor:pclr.widthAnchor],
 
         [prevBtn.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:20],
         [prevBtn.centerYAnchor constraintEqualToAnchor:_musicControlBar.centerYAnchor],
@@ -416,7 +425,9 @@ static void lllReload(UITableView *tv) {
     __weak typeof(self) w = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         __strong typeof(w) s = w;
-        if (s) [s setTab:s.tab1 active:YES];
+        if (!s) return;
+        [s setTab:s.tab1 active:YES];
+        [s applyTheme];
     });
 }
 
@@ -476,6 +487,42 @@ static void lllReload(UITableView *tv) {
 
 - (void)closePanel {
     toggleMainWindow();
+}
+
+- (void)applyTheme {
+    UIColor *accent = LLLAccentColor();
+
+    if (_playPauseBtn) {
+        _playPauseBtn.backgroundColor = accent;
+        LLLGlow(_playPauseBtn, accent, 14, 0.55);
+    }
+    if (self.chooseBgBtn) {
+        self.chooseBgBtn.backgroundColor = accent;
+        LLLGlow(self.chooseBgBtn, accent, 12, 0.35);
+    }
+    if (self.modeSegment) {
+        self.modeSegment.selectedSegmentTintColor = accent;
+    }
+    if (_indicator) {
+        _indicator.layer.borderColor = [accent colorWithAlphaComponent:0.55].CGColor;
+    }
+    if (_headerSub) {
+        _headerSub.textColor = [accent colorWithAlphaComponent:0.85];
+    }
+
+    // 递归把设置页所有开关的 onTintColor 换掉
+    [self tintSwitchesIn:self.settingsView color:accent];
+}
+
+- (void)tintSwitchesIn:(UIView *)view color:(UIColor *)color {
+    if (!view) return;
+    for (UIView *sub in view.subviews) {
+        if ([sub isKindOfClass:[UISwitch class]]) {
+            ((UISwitch *)sub).onTintColor = color;
+        } else {
+            [self tintSwitchesIn:sub color:color];
+        }
+    }
 }
 
 - (UIButton *)tBtn:(NSString *)t ico:(NSString *)i act:(SEL)a {
@@ -558,6 +605,9 @@ static void lllReload(UITableView *tv) {
 #pragma mark - 标签切换
 
 - (void)switchTo:(UITableView *)to hide:(NSArray *)others bar:(UIView *)bar {
+    // 已经停在这一页了 —— 直接返回，别再播一次过渡动画
+    if (!to.hidden && to.alpha > 0.9) return;
+
     UITableView *from = nil;
     for (UITableView *v in others) {
         if (!v.hidden) { from = v; break; }

@@ -25,6 +25,8 @@
 - (void)injBJ;
 - (void)injMisaki;
 - (void)injectPluginsWithType:(NSInteger)type;
+- (void)injectPersonalSave;
+- (void)doInjectPluginsToDir:(NSString *)dir;
 - (NSString *)summaryText:(NSString *)verb ok:(NSArray *)ok fail:(NSArray *)fail;
 
 @end

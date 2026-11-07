@@ -18,6 +18,7 @@
               action:(SEL)action
             outField:(UITextField **)outField;
 - (UIView *)cardRow;
+- (void)themeChanged:(UISegmentedControl *)sender;
 @end
 
 @implementation MainViewController (SettingsBackground)
@@ -76,10 +77,20 @@
                                         action:@selector(toggleCacheCleaner:) outSwitch:NULL];
     [stack addArrangedSubview:cacheCleanerRow];
 
+    // 主题色
+    UISegmentedControl *themeSeg =
+        [[UISegmentedControl alloc] initWithItems:@[@"蓝", @"青", @"紫", @"橙", @"粉"]];
+    themeSeg.selectedSegmentIndex = LLLThemeIndexValue();
+    themeSeg.selectedSegmentTintColor = LLLAccentColor();
+    themeSeg.translatesAutoresizingMaskIntoConstraints = NO;
+    [themeSeg addTarget:self action:@selector(themeChanged:) forControlEvents:UIControlEventValueChanged];
+    [stack addArrangedSubview:themeSeg];
+    [themeSeg.heightAnchor constraintEqualToConstant:34].active = YES;
+
     self.modeSegment = [[UISegmentedControl alloc] initWithItems:@[@"固定", @"定时"]];
     self.modeSegment.selectedSegmentIndex = self.bgMode;
     self.modeSegment.translatesAutoresizingMaskIntoConstraints = NO;
-    self.modeSegment.selectedSegmentTintColor = kAccentBlue;
+    self.modeSegment.selectedSegmentTintColor = LLLAccentColor();
     [self.modeSegment addTarget:self action:@selector(modeSegmentChanged:) forControlEvents:UIControlEventValueChanged];
     [stack addArrangedSubview:self.modeSegment];
     [self.modeSegment.heightAnchor constraintEqualToConstant:34].active = YES;
@@ -129,10 +140,10 @@
     [self.chooseBgBtn setTitle:@"添加背景 (图片/视频)" forState:UIControlStateNormal];
     self.chooseBgBtn.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
     self.chooseBgBtn.tintColor = UIColor.whiteColor;
-    self.chooseBgBtn.backgroundColor = kAccentBlue;
+    self.chooseBgBtn.backgroundColor = LLLAccentColor();
     self.chooseBgBtn.layer.cornerRadius = 12;
     self.chooseBgBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    LLLGlow(self.chooseBgBtn, kAccentBlue, 12, 0.35);
+    LLLGlow(self.chooseBgBtn, LLLAccentColor(), 12, 0.35);
     [self.chooseBgBtn addTarget:self action:@selector(chooseBackgroundImage) forControlEvents:UIControlEventTouchUpInside];
     self.chooseBgBtn.translatesAutoresizingMaskIntoConstraints = NO;
     [self.chooseBgBtn.heightAnchor constraintEqualToConstant:44].active = YES;
@@ -313,6 +324,13 @@
 
     if (outField) *outField = field;
     return row;
+}
+
+- (void)themeChanged:(UISegmentedControl *)sender {
+    LLLSetThemeIndex(sender.selectedSegmentIndex);
+    sender.selectedSegmentTintColor = LLLAccentColor();
+    [self applyTheme];
+    PlayHaptic(YES);
 }
 
 - (void)togglePerfMonitor:(UISwitch *)s { setPerformanceMonitorEnabled(s.isOn); }

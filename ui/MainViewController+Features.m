@@ -261,6 +261,69 @@
 - (void)injBJ { [self injectPluginsWithType:0]; }
 - (void)injMisaki { [self injectPluginsWithType:2]; }
 
+#pragma mark - 个人存档（behavior_packs 自选目录）
+
+- (void)injectPersonalSave {
+    if (!self.plqp.count) { ShowToast(@"队列为空", 1.5, YES, YES); PlayHaptic(NO); return; }
+
+    NSArray<NSString*> *dirs = behaviorPacksDirs();
+    if (dirs.count == 0) {
+        ShowToast(@"没找到 behavior_packs 文件夹", 2, YES, YES);
+        PlayHaptic(NO);
+        return;
+    }
+
+    UIAlertController *ac =
+        [UIAlertController alertControllerWithTitle:@"选择模组缓存文件夹"
+                                            message:@"插件文件夹会合并进你选中的那个目录"
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+
+    for (NSString *d in dirs) {
+        NSString *name = d.lastPathComponent;
+        [ac addAction:[UIAlertAction actionWithTitle:name
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *action) {
+            [self doInjectPluginsToDir:d];
+        }]];
+    }
+    [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *pop = ac.popoverPresentationController;
+    if (pop) {
+        pop.sourceView = self.view;
+        pop.sourceRect = CGRectMake(self.view.bounds.size.width * 0.5,
+                                    self.view.bounds.size.height - 60, 1, 1);
+        pop.permittedArrowDirections = 0;
+    }
+    [self presentViewController:ac animated:YES completion:nil];
+}
+
+- (void)doInjectPluginsToDir:(NSString *)dir {
+    NSArray *paths = [self.plqp copy];
+    NSArray *names = [self.plqn copy];
+    if (!paths.count || !dir.length) return;
+
+    [MaterialHUD show:@"注入中..." inView:self.view];
+    __weak typeof(self) w = self;
+    dispatch_async(g_fileQueue(), ^{
+        NSMutableArray *ok = [NSMutableArray new], *fail = [NSMutableArray new];
+        for (NSUInteger i = 0; i < paths.count; i++) {
+            NSString *name = (i < names.count) ? names[i] : [(NSString *)paths[i] lastPathComponent];
+            if ([ResourceManager copyDir:paths[i] to:dir]) [ok addObject:name];
+            else                                          [fail addObject:name];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (!s) return;
+            [MaterialHUD dismiss];
+            NSString *m = [s summaryText:@"注入" ok:ok fail:fail];
+            [s showAlert:@"完成" msg:m];
+            ShowToast(m, 2, YES, fail.count > 0);
+            PlayHaptic(!fail.count);
+        });
+    });
+}
+
 - (void)injectPluginsWithType:(NSInteger)type {
     if (!self.plqp.count) { ShowToast(@"队列为空", 1.5, YES, YES); PlayHaptic(NO); return; }
     NSString *msg = type == 0 ? @"注入布吉岛中..." : (type == 2 ? @"注入 Misaki 中..." : @"注入 EC 中...");

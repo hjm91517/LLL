@@ -320,10 +320,26 @@ static void cleanCache(NSString *dir, NSRegularExpression *re, NSFileManager *fm
         NSString *t = targetPath();
         NSMutableArray *ok = [NSMutableArray new], *fail = [NSMutableArray new];
 
+        // 双保险：除了自建包，再镜像一份到游戏已经加载过的旧式补丁目录
+        // （v_ 前缀 / *texture* / *FirstPatch*）。默认开，可在设置里关。
+        NSNumber *mirrorObj = [[NSUserDefaults standardUserDefaults] objectForKey:@"LLL.mirrorLegacy"];
+        BOOL doMirror = mirrorObj ? mirrorObj.boolValue : YES;
+        NSArray<NSString*> *mirrors = doMirror ? legacyPatchDirs() : @[];
+        if (mirrors.count) NSLog(@"[LLL] 镜像目标 %lu 个", (unsigned long)mirrors.count);
+
         for (NSUInteger i = 0; i < paths.count; i++) {
             NSString *name = (i < names.count) ? names[i] : [(NSString *)paths[i] lastPathComponent];
-            if (mergeDir(paths[i], t)) [ok addObject:name];
-            else                        [fail addObject:name];
+            BOOL good = mergeDir(paths[i], t);
+
+            if (good && mirrors.count) {
+                for (NSString *m in mirrors) {
+                    if ([m isEqualToString:t]) continue;
+                    mergeDir(paths[i], m);          // 镜像失败不影响主流程
+                }
+            }
+
+            if (good) [ok addObject:name];
+            else      [fail addObject:name];
         }
 
         // 只在全部成功时才叠打击特效，避免半包状态

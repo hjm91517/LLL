@@ -387,6 +387,83 @@ NSArray<NSString*>* detectLegacyPatchDirs(void) {
     return out;
 }
 
+
+#pragma mark - 主题色
+
+static UIColor *LLLThemeDefaultPreset(LLLThemeIndex i) {
+    switch (i) {
+        case LLLThemeGreen:  return [UIColor colorWithRed:0.16 green:0.82 blue:0.45 alpha:1.0];
+        case LLLThemePurple: return [UIColor colorWithRed:0.62 green:0.40 blue:1.00 alpha:1.0];
+        case LLLThemeOrange: return [UIColor colorWithRed:0.95 green:0.52 blue:0.12 alpha:1.0];
+        case LLLThemePink:   return [UIColor colorWithRed:1.00 green:0.36 blue:0.62 alpha:1.0];
+        case LLLThemeBlue:
+        default:             return [UIColor colorWithRed:0.22 green:0.60 blue:1.00 alpha:1.0];
+    }
+}
+
+UIColor *LLLAccentColorFor(LLLThemeIndex i) {
+    if (i < 0 || i >= LLLThemeCount) i = LLLThemeBlue;
+    return LLLThemeDefaultPreset(i);
+}
+
+NSInteger LLLThemeIndexValue(void) {
+    NSInteger v = [[NSUserDefaults standardUserDefaults] integerForKey:@"LLL.theme"];
+    if (v < 0 || v >= LLLThemeCount) v = LLLThemeBlue;
+    return v;
+}
+
+void LLLSetThemeIndex(NSInteger i) {
+    if (i < 0 || i >= LLLThemeCount) i = LLLThemeBlue;
+    [[NSUserDefaults standardUserDefaults] setInteger:i forKey:@"LLL.theme"];
+}
+
+UIColor *LLLAccentColor(void) {
+    return LLLAccentColorFor((LLLThemeIndex)LLLThemeIndexValue());
+}
+
+NSString *LLLThemeName(LLLThemeIndex i) {
+    switch (i) {
+        case LLLThemeGreen:  return @"\u9752";
+        case LLLThemePurple: return @"\u7d2b";
+        case LLLThemeOrange: return @"\u6a59";
+        case LLLThemePink:   return @"\u7c89";
+        default:             return @"\u84dd";
+    }
+}
+
+#pragma mark - behavior_packs（个人存档注入用）
+
+NSArray<NSString*>* behaviorPacksDirs(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *base = [neteaseGameBasePath() stringByAppendingPathComponent:@"behavior_packs"];
+    NSArray<NSString*> *items = [fm contentsOfDirectoryAtPath:base error:nil];
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSString *d in items) {
+        if ([d hasPrefix:@"."]) continue;
+        NSString *full = [base stringByAppendingPathComponent:d];
+        BOOL isDir = NO;
+        if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) [out addObject:full];
+    }
+    return out;
+}
+
+// global_resource_packs.json 的所有可能落点
+NSArray<NSString*>* globalPackJSONCandidates(void) {
+    NSString *base = neteaseGameBasePath();
+    return @[
+        [base stringByAppendingPathComponent:@"global_resource_packs.json"],
+        [base stringByAppendingPathComponent:@"resource_packs/global_resource_packs.json"],
+        [base stringByAppendingPathComponent:@"minecraftpe/global_resource_packs.json"],
+        [base stringByAppendingPathComponent:@"resource_packs/vanilla/global_resource_packs.json"],
+        [[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/games/com.netease"]
+            stringByAppendingPathComponent:@"global_resource_packs.json"],
+    ];
+}
+
+NSArray<NSString*>* legacyPatchDirs(void) {
+    return detectLegacyPatchDirs();
+}
+
 #pragma mark - 自建注入包
 
 // 固定 UUID：每次注入都是同一个包，不会在游戏里堆出一堆重复条目
@@ -421,54 +498,62 @@ BOOL lllEnsureInjectPackManifest(void) {
     return d && [d writeToFile:mp atomically:YES];
 }
 
-// global_resource_packs.json 的实际位置：3.10 的 reloadUserPacks() 里
-// 它和 packcache / premiumcache / ResPackDownloads 是兄弟，都在游戏根下
-static NSString* globalPacksJSONPath(void) {
-    NSFileManager *fm = NSFileManager.defaultManager;
-    NSString *base = neteaseGameBasePath();
-    NSString *a = [base stringByAppendingPathComponent:@"global_resource_packs.json"];
-    if ([fm fileExistsAtPath:a]) return a;
-    NSString *b = [resourcePacksRootPath() stringByAppendingPathComponent:@"global_resource_packs.json"];
-    if ([fm fileExistsAtPath:b]) return b;
-    return a;   // 都没有就建在根下
-}
-
 BOOL lllInjectPackRegistered(void) {
-    NSString *p = globalPacksJSONPath();
-    NSData *d = [NSData dataWithContentsOfFile:p];
-    if (!d) return NO;
-    id j = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
-    if (![j isKindOfClass:NSArray.class]) return NO;
-    for (NSDictionary *e in j) {
-        if ([e isKindOfClass:NSDictionary.class] &&
-            [e[@"pack_id"] isEqualToString:kLLLPackUUID]) return YES;
+    for (NSString *p in globalPackJSONCandidates()) {
+        NSData *d = [NSData dataWithContentsOfFile:p];
+        if (!d) continue;
+        id j = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+        if (![j isKindOfClass:NSArray.class]) continue;
+        for (NSDictionary *e in j) {
+            if ([e isKindOfClass:NSDictionary.class] &&
+                [e[@"pack_id"] isEqualToString:kLLLPackUUID]) return YES;
+        }
     }
     return NO;
 }
 
+// 所有已存在的 global_resource_packs.json 全写一遍；一个都没存在才新建在根下
 BOOL lllRegisterGlobalPack(void) {
-    NSString *p = globalPacksJSONPath();
-    NSMutableArray *arr = [NSMutableArray array];
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSUInteger written = 0;
+    BOOL anyExisting = NO;
 
-    NSData *d = [NSData dataWithContentsOfFile:p];
-    if (d) {
-        id j = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
-        if ([j isKindOfClass:NSArray.class]) [arr addObjectsFromArray:j];
+    for (NSString *p in globalPackJSONCandidates()) {
+        if (![fm fileExistsAtPath:p]) continue;
+        anyExisting = YES;
+
+        NSMutableArray *arr = [NSMutableArray array];
+        NSData *d = [NSData dataWithContentsOfFile:p];
+        if (d) {
+            id j = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+            if ([j isKindOfClass:NSArray.class]) [arr addObjectsFromArray:j];
+        }
+
+        BOOL has = NO;
+        for (NSDictionary *e in arr) {
+            if ([e isKindOfClass:NSDictionary.class] &&
+                [e[@"pack_id"] isEqualToString:kLLLPackUUID]) { has = YES; break; }
+        }
+        if (!has) {
+            [arr addObject:@{ @"pack_id" : kLLLPackUUID, @"version" : @[@1, @0, @0] }];
+        }
+
+        NSData *out = [NSJSONSerialization dataWithJSONObject:arr
+                                                      options:NSJSONWritingPrettyPrinted
+                                                        error:nil];
+        if (out && [out writeToFile:p atomically:YES]) written++;
     }
 
-    BOOL has = NO;
-    for (NSDictionary *e in arr) {
-        if ([e isKindOfClass:NSDictionary.class] &&
-            [e[@"pack_id"] isEqualToString:kLLLPackUUID]) { has = YES; break; }
-    }
-    if (!has) {
-        [arr addObject:@{ @"pack_id" : kLLLPackUUID, @"version" : @[@1, @0, @0] }];
+    if (!anyExisting) {
+        NSString *p = [neteaseGameBasePath() stringByAppendingPathComponent:@"global_resource_packs.json"];
+        NSArray *arr = @[ @{ @"pack_id" : kLLLPackUUID, @"version" : @[@1, @0, @0] } ];
+        NSData *out = [NSJSONSerialization dataWithJSONObject:arr
+                                                      options:NSJSONWritingPrettyPrinted
+                                                        error:nil];
+        if (out && [out writeToFile:p atomically:YES]) written++;
     }
 
-    NSData *out = [NSJSONSerialization dataWithJSONObject:arr
-                                                  options:NSJSONWritingPrettyPrinted
-                                                    error:nil];
-    return out && [out writeToFile:p atomically:YES];
+    return written > 0;
 }
 
 // 预留：路径缓存都是 dispatch_once，只能重启生效。保留给 UI 用。
@@ -859,6 +944,8 @@ static MaterialHUD *g_hud;
 }
 @end
 
+static NSString * const kLLLWatermarkText = @"\u8c6a\u86a7\u4e8c\u6539 \u00b7 \u4e91\u843d\u5236\u4f5c QQ\u7fa4:1071596112";
+
 @interface WatermarkWindow : BaseOverlayWindow @end
 @implementation WatermarkWindow
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
@@ -895,10 +982,21 @@ static MaterialHUD *g_hud;
         ];
         _gradientLayer.startPoint = CGPointMake(0, 0.5);
         _gradientLayer.endPoint = CGPointMake(1, 0.5);
+        _gradientLayer.locations = @[@(-0.5), @(-0.3), @(-0.1), @0.1, @0.3, @0.5];
         [self.layer addSublayer:_gradientLayer];
 
+        // 动态流动：平移 locations，字面彩虹带一直在跑
+        CABasicAnimation *flow = [CABasicAnimation animationWithKeyPath:@"locations"];
+        flow.fromValue = @[@(-0.5), @(-0.3), @(-0.1), @0.1, @0.3, @0.5];
+        flow.toValue   = @[@0.5, @0.7, @0.9, @1.1, @1.3, @1.5];
+        flow.duration  = 3.2;
+        flow.repeatCount = HUGE_VALF;
+        flow.removedOnCompletion = NO;
+        flow.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+        [_gradientLayer addAnimation:flow forKey:@"lll.gradient.flow"];
+
         _textLayer = [CATextLayer layer];
-        _textLayer.string = @"云落制作 QQ群:1071596112";
+        _textLayer.string = kLLLWatermarkText;
         _textLayer.fontSize = 14;
         _textLayer.alignmentMode = kCAAlignmentCenter;
         _textLayer.foregroundColor = [UIColor whiteColor].CGColor;
@@ -973,7 +1071,7 @@ void showWatermark(void) {
     watermarkWin.userInteractionEnabled = YES;
     watermarkWin.rootViewController = [UIViewController new];
 
-    NSString *text = @"云落制作 QQ群:1071596112";
+    NSString *text = kLLLWatermarkText;
     UIFont *wmFont = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     CGSize textSize = [text sizeWithAttributes:@{NSFontAttributeName: wmFont}];
     CGFloat width = textSize.width + 32;
