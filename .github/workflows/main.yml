@@ -119,30 +119,46 @@ jobs:
 
       - name: Collect & sign
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p dist
+
           ENT=""
-          [ -f ".github/entitlements.plist" ] && ENT=".github/entitlements.plist"
+          if [ -f ".github/entitlements.plist" ]; then ENT=".github/entitlements.plist"; fi
 
-          echo "--- .theos/obj 产物 ---"
-          find .theos -name '*.dylib' -print 2>/dev/null || true
+          echo "--- 候选 dylib ---"
+          # 排除 dSYM（那是 DWARF 调试文件，不是 Mach-O，ldid 会直接 assert 崩）
+          find . -name '*.dylib' \
+               -not -path './dist/*' -not -path './.git/*' -not -path '*dSYM*' \
+               | sort > /tmp/all_dylibs.txt || true
+          cat /tmp/all_dylibs.txt
 
-          found=0
-          while IFS= read -r -d '' f; do
-            out="dist/$(basename "$f")"
-            cp -f "$f" "$out"
-            if [ -n "$ENT" ]; then ldid -S"$ENT" "$out"; else ldid -S "$out"; fi
-            echo "== $out"
-            lipo -info "$out" || true
-            otool -L "$out" | head -20 || true
-            found=$((found+1))
-          done < <(find . -name '*.dylib' -not -path './dist/*' -not -path './.git/*' -print0)
+          : > /tmp/picked.txt
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            b=$(basename "$f")
+            if grep -qxF "$b" /tmp/picked.txt; then continue; fi
+            if ! file "$f" | grep -q 'Mach-O'; then
+              echo "跳过非 Mach-O: $f"
+              continue
+            fi
+            echo "$b" >> /tmp/picked.txt
+            cp -f "$f" "dist/$b"
+          done < /tmp/all_dylibs.txt
+
+          echo "--- 签名 ---"
+          for f in dist/*.dylib; do
+            [ -e "$f" ] || continue
+            if [ -n "$ENT" ]; then ldid -S"$ENT" "$f"; else ldid -S "$f"; fi
+            echo "== $f"
+            lipo -info "$f" || true
+            otool -L "$f" | head -20 || true
+          done
 
           find . -name '*.deb' -not -path './.git/*' -exec cp -f {} dist/ \; 2>/dev/null || true
 
           echo "--- dist ---"
           ls -la dist
-          test "$found" -gt 0 || { echo "!! 一个 dylib 都没生成"; exit 1; }
+          test -n "$(ls -A dist | grep '\.dylib$')" || { echo "!! 一个 dylib 都没生成"; exit 1; }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
