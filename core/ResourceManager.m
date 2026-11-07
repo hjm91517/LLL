@@ -216,6 +216,60 @@ static BOOL sameFile(NSString *a, NSString *b) {
     return da && db && fabs([da timeIntervalSinceDate:db]) < 1.0;
 }
 
+
+#pragma mark - 注入日志（谁写的、备份在哪）
+
+static NSString *sJournalRoot = nil;
+static NSMutableArray *sJournalEntries = nil;
+
+static NSString *LLLBackupRoot(void) {
+    return [docsPath() stringByAppendingPathComponent:@".lll_backup"];
+}
+
+static NSString *LLLJournalPath(void) {
+    return [docsPath() stringByAppendingPathComponent:@".lll_journal.json"];
+}
+
+// 每次要往目标里写文件之前调一次：原来的内容先备份，然后记一条账
+static void LLLJournalNote(NSString *dst) {
+    if (!sJournalRoot || !sJournalEntries) return;
+    if (![dst hasPrefix:sJournalRoot]) return;
+
+    NSString *rel = [dst substringFromIndex:sJournalRoot.length];
+    if ([rel hasPrefix:@"/"]) rel = [rel substringFromIndex:1];
+
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *bak = @"";
+
+    if ([fm fileExistsAtPath:dst]) {
+        NSString *key = [NSString stringWithFormat:@"%lu", (unsigned long)sJournalRoot.hash];
+        NSString *b = [[LLLBackupRoot() stringByAppendingPathComponent:key]
+                       stringByAppendingPathComponent:rel];
+        ensureDir(b.stringByDeletingLastPathComponent);
+        [fm removeItemAtPath:b error:nil];
+        if ([fm copyItemAtPath:dst toPath:b error:nil]) {
+            bak = [key stringByAppendingPathComponent:rel];
+        }
+    }
+
+    [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel, @"bak": bak }];
+}
+
+static void LLLJournalCommit(NSArray *entries) {
+    if (!entries.count) return;
+    NSString *p = LLLJournalPath();
+    NSMutableArray *all = [NSMutableArray array];
+    NSData *d = [NSData dataWithContentsOfFile:p];
+    if (d) {
+        id j = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+        if ([j isKindOfClass:[NSArray class]]) [all addObjectsFromArray:(NSArray *)j];
+    }
+    [all addObjectsFromArray:entries];
+    NSData *o = [NSJSONSerialization dataWithJSONObject:all options:0 error:nil];
+    [o writeToFile:p atomically:YES];
+    lllLog(@"记账 %lu 条，累计 %lu 条", (unsigned long)entries.count, (unsigned long)all.count);
+}
+
 static void LLLReportTick(NSString *path);
 
 // 容错版本：单个文件失败不影响整体，只要落了一个文件就返回 YES。
@@ -242,10 +296,11 @@ static BOOL mergeDir(NSString *srcDir, NSString *dstDir) {
         }
 
         if ([fm fileExistsAtPath:dst] && sameFile(src, dst)) { LLLReportTick(src); touched = YES; continue; }
-        if ([fm fileExistsAtPath:dst] && mergeFile(src, dst)) { LLLReportTick(src); touched = YES; continue; }
+        if ([fm fileExistsAtPath:dst] && mergeFile(src, dst)) { LLLJournalNote(dst); LLLReportTick(src); touched = YES; continue; }
 
         // 最后一招：删了重拷
         if ([fm fileExistsAtPath:dst]) [fm removeItemAtPath:dst error:nil];
+        LLLJournalNote(dst);
         if ([fm copyItemAtPath:src toPath:dst error:nil]) { LLLReportTick(src); touched = YES; continue; }
 
         lllLog(@"!!! 写入失败: %@", dst);
@@ -386,6 +441,10 @@ static NSUInteger lllCountFiles(NSString *dir) {
             BOOL any = NO;
 
             for (NSString *t in targets) {
+                // 开一本新账
+                sJournalRoot = t;
+                sJournalEntries = [NSMutableArray array];
+
                 lllEnsurePackManifestAt(t);
                 BOOL r = mergeDir(paths[i], t);
                 if (r) any = YES;
@@ -394,6 +453,10 @@ static NSUInteger lllCountFiles(NSString *dir) {
                 lllLogPackRootFiles(t);
                 lllStripSignatures(t);
                 lllRewriteFolderMD5(t);
+
+                LLLJournalCommit(sJournalEntries);
+                sJournalRoot = nil;
+                sJournalEntries = nil;
             }
 
             if (any && mirrors.count) {
@@ -494,29 +557,44 @@ static NSUInteger lllCountFiles(NSString *dir) {
 
 + (void)cleanTarget:(void(^)(BOOL))cb {
     dispatch_async(g_fileQueue(), ^{
-        // 只清 LLL 自己的两个目录。游戏自己的 3.10_v_* 补丁包一个字节都不许动。
-        NSMutableArray *mine = [NSMutableArray array];
-        [mine addObject:targetPath()];
+        // 按账本精确还原：覆盖过的把原文件拷回去，新建的直接删。
+        // 游戏自己的资源一个都不会动。
+        NSString *p = LLLJournalPath();
+        NSData *d = [NSData dataWithContentsOfFile:p];
+        id j = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
 
-        NSString *leaf = targetPath().lastPathComponent;
-        for (NSString *base in candidateGameBases()) {
-            NSString *dev = [base stringByAppendingPathComponent:@"development_resource_packs"];
-            BOOL isDir = NO;
-            if ([[NSFileManager defaultManager] fileExistsAtPath:dev isDirectory:&isDir] && isDir) {
-                [mine addObject:[dev stringByAppendingPathComponent:leaf]];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSUInteger restored = 0, removed = 0;
+
+        if ([j isKindOfClass:[NSArray class]]) {
+            for (NSDictionary *e in (NSArray *)j) {
+                if (![e isKindOfClass:[NSDictionary class]]) continue;
+                NSString *target = e[@"target"];
+                NSString *rel = e[@"rel"];
+                NSString *bak = e[@"bak"];
+                if (![target isKindOfClass:[NSString class]] || !target.length) continue;
+                if (![rel isKindOfClass:[NSString class]] || !rel.length) continue;
+
+                NSString *dst = [target stringByAppendingPathComponent:rel];
+
+                if ([bak isKindOfClass:[NSString class]] && bak.length) {
+                    NSString *src = [LLLBackupRoot() stringByAppendingPathComponent:bak];
+                    if ([fm fileExistsAtPath:src]) {
+                        [fm removeItemAtPath:dst error:nil];
+                        ensureDir(dst.stringByDeletingLastPathComponent);
+                        if ([fm copyItemAtPath:src toPath:dst error:nil]) restored++;
+                    }
+                } else {
+                    if ([fm removeItemAtPath:dst error:nil]) removed++;
+                }
             }
         }
 
-        BOOL ok = YES;
-        for (NSString *t in mine) {
-            NSFileManager *fm = [NSFileManager defaultManager];
-            if (![fm fileExistsAtPath:t]) continue;
-            if (!cleanDir(t, @"manifest.json")) ok = NO;
-            lllLog(@"清理(仅自己) %@ -> %lu files", t.lastPathComponent,
-                   (unsigned long)lllCountFiles(t));
-        }
+        [fm removeItemAtPath:p error:nil];
+        [fm removeItemAtPath:LLLBackupRoot() error:nil];
 
-        dispatch_async(dispatch_get_main_queue(), ^{ if (cb) cb(ok); });
+        lllLog(@"清理目标: 还原 %lu 个, 删除 %lu 个", (unsigned long)restored, (unsigned long)removed);
+        dispatch_async(dispatch_get_main_queue(), ^{ if (cb) cb(YES); });
     });
 }
 
