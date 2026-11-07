@@ -461,8 +461,11 @@ NSArray<NSString*>* injectionTargetDirs(void) {
         }
     }
 
-    // 游戏自己那几个 3.10_v_* 热更包，直接覆盖进去，这条最稳
+    // 游戏自己那几个 3.10_v_* 热更包，直接覆盖进去
     for (NSString *dir in hotPatchPackDirs()) addDir(dir);
+
+    // 用户自己下载的包 —— 最后一层，游戏一般不对它做完整性校验
+    for (NSString *dir in userResourcePackDirs()) addDir(dir);
 
     return out;
 }
@@ -741,6 +744,31 @@ NSArray<NSString*>* globalPackJSONCandidates(void) {
 
 NSArray<NSString*>* legacyPatchDirs(void) {
     return detectLegacyPatchDirs();
+}
+
+// 用户自己下载/导入的资源包（不带 _v_ 但有 pack_manifest.json）
+// 这是唯一还没试过的一层：游戏把它当"用户内容"，通常不做服务端校验。
+NSArray<NSString*>* userResourcePackDirs(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *root = resourcePacksRootPath();
+    NSArray<NSString*> *items = [fm contentsOfDirectoryAtPath:root error:nil];
+    NSMutableArray *out = [NSMutableArray array];
+    NSString *mine = lllPackDirName();
+
+    for (NSString *it in items) {
+        if ([it hasPrefix:@"."]) continue;
+        if ([it isEqualToString:mine]) continue;
+        if ([it rangeOfString:@"_v_"].location != NSNotFound) continue;
+        if ([it hasPrefix:@"vanilla"]) continue;
+
+        NSString *full = [root stringByAppendingPathComponent:it];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:full isDirectory:&isDir] || !isDir) continue;
+        if ([fm fileExistsAtPath:[full stringByAppendingPathComponent:@"pack_manifest.json"]]) {
+            [out addObject:full];
+        }
+    }
+    return out;
 }
 
 BOOL lllEnsurePackManifestAt(NSString *dir) {

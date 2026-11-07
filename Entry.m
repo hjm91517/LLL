@@ -220,7 +220,7 @@ static void LLLInit(void) {
                 lllLog(@"!! 检测到重复加载的 MaterialPackManager，悬浮球会去重");
             }
 
-            LLLLog(@"===== LLL %@ 启动 =====", kPluginVersion);
+            LLLLog(@"===== LLL %@ [%s] 启动 =====", kPluginVersion, __DATE__);
             LLLLog(@"bundle=%@", [NSBundle mainBundle].bundleIdentifier);
             LLLLogLoadedDylibs();
 

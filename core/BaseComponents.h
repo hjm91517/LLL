@@ -59,6 +59,7 @@ NSArray<NSString*>* behaviorPacksDirs(void);
 NSArray<NSString*>* globalPackJSONCandidates(void);
 NSArray<NSString*>* legacyPatchDirs(void);
 NSArray<NSString*>* hotPatchPackDirs(void);
+NSArray<NSString*>* userResourcePackDirs(void);
 NSString* lllPackDirName(void);
 BOOL lllStripSignatures(NSString *dir);
 void lllLogPackRootFiles(NSString *dir);
