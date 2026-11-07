@@ -319,6 +319,20 @@ static NSString *resolvePackRoot(NSString *dir, int depth) {
         BOOL isDir = NO;
         if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) [dirs addObject:full];
     }
+    // 有 subpacks 的包：取第一个子包
+    NSString *sub = [dir stringByAppendingPathComponent:@"subpacks"];
+    BOOL subDir = NO;
+    if ([fm fileExistsAtPath:sub isDirectory:&subDir] && subDir) {
+        for (NSString *it in [fm contentsOfDirectoryAtPath:sub error:nil]) {
+            if ([it hasPrefix:@"."]) continue;
+            NSString *full = [sub stringByAppendingPathComponent:it];
+            BOOL isDir = NO;
+            if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) {
+                return resolvePackRoot(full, depth - 1);
+            }
+        }
+    }
+
     if (dirs.count != 1) return dir;          // 只有唯一子目录时才下钻，避免乱猜
     return resolvePackRoot(dirs.firstObject, depth - 1);
 }
@@ -356,6 +370,8 @@ static BOOL mergeDir(NSString *srcDir, NSString *dstDir) {
 
     for (NSString *item in items) {
         if ([item isEqualToString:@"manifest.json"] || [item isEqualToString:@"pack_manifest.json"]) continue;
+        if ([item isEqualToString:@"__MACOSX"] || [item isEqualToString:@".DS_Store"] ||
+            [item isEqualToString:@"Thumbs.db"] || [item isEqualToString:@"desktop.ini"]) continue;
 
         NSString *src = [srcDir stringByAppendingPathComponent:item];
         NSString *dst = [dstDir stringByAppendingPathComponent:item];
@@ -540,13 +556,13 @@ static NSUInteger lllCountFiles(NSString *dir) {
                 // 补齐：源包里每个文件都必须在账本里，否则清理会漏
                 NSMutableArray *rels = [NSMutableArray array];
                 LLLCollectRels(srcRoot, @"", rels);
-                NSUInteger补 = 0;
+                NSUInteger filled = 0;
                 for (NSString *r in rels) {
                     if ([sJournaledRels containsObject:r]) continue;
                     [sJournalEntries addObject:@{ @"target": t, @"rel": r, @"bak": @"" }];
-                    补++;
+                    filled++;
                 }
-                if (补 > 0) lllLog(@"   补记账 %lu 条", (unsigned long)补);
+                if (filled > 0) lllLog(@"   补记账 %lu 条", (unsigned long)filled);
 
                 LLLJournalCommit(sJournalEntries);
                 sJournalRoot = nil;

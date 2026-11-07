@@ -33,6 +33,7 @@ static void lllReload(UITableView *tv) {
 
 @interface LLLBarsView : UIView
 @property (nonatomic, strong) NSMutableArray<NSNumber *> *levels;
+@property (nonatomic, strong) UIColor *barColor;
 - (void)setLevel:(CGFloat)v index:(NSInteger)i;
 - (void)setLevels:(const CGFloat *)vals count:(NSInteger)n;
 @end
@@ -44,6 +45,7 @@ static void lllReload(UITableView *tv) {
         for (int i = 0; i < 16; i++) [_levels addObject:@0.05];
         self.backgroundColor = UIColor.clearColor;
         self.userInteractionEnabled = NO;
+        _barColor = LLLAccentColor();
     }
     return self;
 }
@@ -62,7 +64,7 @@ static void lllReload(UITableView *tv) {
     NSUInteger n = _levels.count;
     if (!n) return;
     CGFloat w = rect.size.width / n;
-    UIColor *c = LLLAccentColor();
+    UIColor *c = _barColor ?: LLLAccentColor();
     for (NSUInteger i = 0; i < n; i++) {
         CGFloat h = MAX(2.0, [_levels[i] doubleValue] * rect.size.height);
         CGRect r = CGRectMake(i * w + w * 0.22, rect.size.height - h, w * 0.56, h);
@@ -895,6 +897,10 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     if (_progressSlider) _progressSlider.minimumTrackTintColor = accent;
     if (_playerProgress) _playerProgress.minimumTrackTintColor = accent;
     if (_playerVolume) _playerVolume.minimumTrackTintColor = accent;
+    if (_bars) {
+        _bars.barColor = accent;
+        [_bars setNeedsDisplay];
+    }
     if (_playerCloudBtn) {
         _playerCloudBtn.backgroundColor = [accent colorWithAlphaComponent:0.28];
     }
