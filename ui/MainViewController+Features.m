@@ -173,11 +173,23 @@
         [MaterialHUD dismiss];
         __strong typeof(w) s = w;
         if (!s) return;
-        NSString *m = fail.count==0 ? [NSString stringWithFormat:@"成功注入 %@", ok[0]] : [NSString stringWithFormat:@"部分成功 (%lu/%lu)", (unsigned long)ok.count, (unsigned long)(ok.count+fail.count)];
+        NSString *m = [s summaryText:@"注入" ok:ok fail:fail];
         [s showAlert:@"完成" msg:m];
         ShowToast(m,2,YES,fail.count>0);
         PlayHaptic(!fail.count);
     }];
+}
+
+// 统一的结果文案，顺带挡住 ok[0] 空数组崩溃
+- (NSString *)summaryText:(NSString *)verb ok:(NSArray *)ok fail:(NSArray *)fail {
+    NSUInteger okN = ok.count, failN = fail.count;
+    if (okN == 0 && failN == 0) return @"没有可处理的项目";
+    if (failN == 0) {
+        if (okN == 1) return [NSString stringWithFormat:@"成功%@ %@", verb, ok.firstObject];
+        return [NSString stringWithFormat:@"成功%@ %lu 项", verb, (unsigned long)okN];
+    }
+    if (okN == 0) return [NSString stringWithFormat:@"%@失败 %lu 项", verb, (unsigned long)failN];
+    return [NSString stringWithFormat:@"部分成功 (%lu/%lu)", (unsigned long)okN, (unsigned long)(okN + failN)];
 }
 
 - (void)doClean {
@@ -264,7 +276,7 @@
             ShowToast(@"目标不存在",2,YES,YES);
             return;
         }
-        NSString *m = fail.count ? [NSString stringWithFormat:@"部分成功 (%lu/%lu)",(unsigned long)ok.count,(unsigned long)(ok.count+fail.count)] : [NSString stringWithFormat:@"成功注入 %@", ok[0]];
+        NSString *m = [s summaryText:@"注入" ok:ok fail:fail];
         [s showAlert:@"完成" msg:m];
         ShowToast(m,2,YES,fail.count>0);
         PlayHaptic(!fail.count);

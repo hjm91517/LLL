@@ -9,6 +9,15 @@
 #import <PhotosUI/PhotosUI.h>
 
 @interface MainViewController (SettingsBackgroundPrivate) <PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+- (UIView *)switchRow:(NSString *)title
+             switchOn:(BOOL)on
+               action:(SEL)action
+            outSwitch:(UISwitch **)outSwitch;
+- (UIView *)inputRow:(NSString *)title
+           fieldText:(NSString *)text
+              action:(SEL)action
+            outField:(UITextField **)outField;
+- (UIView *)cardRow;
 @end
 
 @implementation MainViewController (SettingsBackground)
@@ -45,28 +54,35 @@
         [stack.widthAnchor constraintEqualToAnchor:scroll.widthAnchor]
     ]];
 
-    UIView *perfRow = [self switchRow:@"性能监视" switchOn:isPerformanceMonitorEnabled() action:@selector(togglePerfMonitor:)];
-    self.perfSwitch = perfRow.subviews.lastObject;
+    UISwitch *perfSw = nil;
+    UIView *perfRow = [self switchRow:@"性能监视" switchOn:isPerformanceMonitorEnabled()
+                               action:@selector(togglePerfMonitor:) outSwitch:&perfSw];
+    self.perfSwitch = perfSw;
     [stack addArrangedSubview:perfRow];
 
-    UIView *watermarkRow = [self switchRow:@"显示水印" switchOn:isWatermarkEnabled() action:@selector(toggleWatermark:)];
+    UIView *watermarkRow = [self switchRow:@"显示水印" switchOn:isWatermarkEnabled()
+                                    action:@selector(toggleWatermark:) outSwitch:NULL];
     [stack addArrangedSubview:watermarkRow];
 
-    UIView *bgRow = [self switchRow:@"自定义背景" switchOn:[[NSUserDefaults standardUserDefaults] boolForKey:@"CustomBackgroundEnabled"] action:@selector(toggleCustomBackground:)];
-    self.bgSwitch = bgRow.subviews.lastObject;
+    UISwitch *bgSw = nil;
+    UIView *bgRow = [self switchRow:@"自定义背景"
+                           switchOn:[[NSUserDefaults standardUserDefaults] boolForKey:@"CustomBackgroundEnabled"]
+                             action:@selector(toggleCustomBackground:) outSwitch:&bgSw];
+    self.bgSwitch = bgSw;
     [stack addArrangedSubview:bgRow];
 
     UIView *cacheCleanerRow = [self switchRow:@"缓存自动清理"
                                       switchOn:isCacheCleanerEnabled()
-                                        action:@selector(toggleCacheCleaner:)];
+                                        action:@selector(toggleCacheCleaner:) outSwitch:NULL];
     [stack addArrangedSubview:cacheCleanerRow];
 
     self.modeSegment = [[UISegmentedControl alloc] initWithItems:@[@"固定", @"定时"]];
     self.modeSegment.selectedSegmentIndex = self.bgMode;
     self.modeSegment.translatesAutoresizingMaskIntoConstraints = NO;
+    self.modeSegment.selectedSegmentTintColor = kAccentBlue;
     [self.modeSegment addTarget:self action:@selector(modeSegmentChanged:) forControlEvents:UIControlEventValueChanged];
     [stack addArrangedSubview:self.modeSegment];
-    [self.modeSegment.heightAnchor constraintEqualToConstant:32].active = YES;
+    [self.modeSegment.heightAnchor constraintEqualToConstant:34].active = YES;
 
     UIView *navRow = [UIView new];
     self.prevBgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -101,8 +117,12 @@
     ]];
     [stack addArrangedSubview:navRow];
 
-    UIView *intervalRow = [self inputRow:@"切换间隔(秒)" fieldText:[NSString stringWithFormat:@"%ld", (long)[[NSUserDefaults standardUserDefaults] integerForKey:@"BGInterval"] ?: 60] action:@selector(intervalChanged:)];
-    self.intervalField = intervalRow.subviews.lastObject;
+    UITextField *intervalField = nil;
+    UIView *intervalRow = [self inputRow:@"切换间隔(秒)"
+                               fieldText:[NSString stringWithFormat:@"%ld", (long)([[NSUserDefaults standardUserDefaults] integerForKey:@"BGInterval"] ?: 60)]
+                                  action:@selector(intervalChanged:)
+                                outField:&intervalField];
+    self.intervalField = intervalField;
     [stack addArrangedSubview:intervalRow];
 
     self.chooseBgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -171,54 +191,91 @@
     setCacheCleanerEnabled(sender.isOn);
 }
 
-- (UIView *)switchRow:(NSString *)title switchOn:(BOOL)on action:(SEL)action {
+// 设置项统一容器：圆角浅底 + 细描边
+- (UIView *)cardRow {
     UIView *row = [UIView new];
-    UILabel *label = [UILabel new];
-    label.text = title;
-    label.textColor = UIColor.whiteColor;
-    label.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
-    label.translatesAutoresizingMaskIntoConstraints = NO;
-    [row addSubview:label];
-    UISwitch *sw = [[UISwitch alloc] init];
-    sw.on = on;
-    sw.translatesAutoresizingMaskIntoConstraints = NO;
-    [sw addTarget:self action:action forControlEvents:UIControlEventValueChanged];
-    [row addSubview:sw];
-    [NSLayoutConstraint activateConstraints:@[
-        [label.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
-        [label.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
-        [sw.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
-        [sw.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
-        [row.heightAnchor constraintEqualToConstant:44]
-    ]];
+    row.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.06];
+    row.layer.cornerRadius = 12;
+    row.layer.cornerCurve = kCACornerCurveContinuous;
+    row.layer.borderWidth = kHairline;
+    row.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.08].CGColor;
+    row.translatesAutoresizingMaskIntoConstraints = NO;
     return row;
 }
 
-- (UIView *)inputRow:(NSString *)title fieldText:(NSString *)text action:(SEL)action {
-    UIView *row = [UIView new];
+- (UIView *)switchRow:(NSString *)title
+             switchOn:(BOOL)on
+               action:(SEL)action
+            outSwitch:(UISwitch **)outSwitch {
+    UIView *row = [self cardRow];
+
     UILabel *label = [UILabel new];
     label.text = title;
     label.textColor = UIColor.whiteColor;
-    label.font = [UIFont systemFontOfSize:14];
+    label.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
     label.translatesAutoresizingMaskIntoConstraints = NO;
     [row addSubview:label];
+
+    UISwitch *sw = [[UISwitch alloc] init];
+    sw.on = on;
+    sw.onTintColor = kAccentGreen;
+    sw.translatesAutoresizingMaskIntoConstraints = NO;
+    [sw addTarget:self action:action forControlEvents:UIControlEventValueChanged];
+    [row addSubview:sw];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [label.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:14],
+        [label.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
+        [label.trailingAnchor constraintLessThanOrEqualToAnchor:sw.leadingAnchor constant:-10],
+        [sw.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-14],
+        [sw.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
+        [row.heightAnchor constraintEqualToConstant:50]
+    ]];
+
+    if (outSwitch) *outSwitch = sw;
+    return row;
+}
+
+- (UIView *)inputRow:(NSString *)title
+           fieldText:(NSString *)text
+              action:(SEL)action
+            outField:(UITextField **)outField {
+    UIView *row = [self cardRow];
+
+    UILabel *label = [UILabel new];
+    label.text = title;
+    label.textColor = UIColor.whiteColor;
+    label.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    [row addSubview:label];
+
     UITextField *field = [[UITextField alloc] init];
-    field.borderStyle = UITextBorderStyleRoundedRect;
-    field.backgroundColor = [UIColor colorWithWhite:0.2 alpha:0.8];
+    field.borderStyle = UITextBorderStyleNone;
+    field.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.08];
+    field.layer.cornerRadius = 8;
+    field.layer.cornerCurve = kCACornerCurveContinuous;
     field.textColor = UIColor.whiteColor;
+    field.tintColor = kAccentBlue;
+    field.textAlignment = NSTextAlignmentCenter;
     field.keyboardType = UIKeyboardTypeNumberPad;
+    field.font = [UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightMedium];
     field.text = text;
     field.translatesAutoresizingMaskIntoConstraints = NO;
     [field addTarget:self action:action forControlEvents:UIControlEventEditingDidEnd];
     [row addSubview:field];
+
     [NSLayoutConstraint activateConstraints:@[
-        [label.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
+        [label.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:14],
         [label.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
-        [field.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
+        [label.trailingAnchor constraintLessThanOrEqualToAnchor:field.leadingAnchor constant:-10],
+        [field.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-10],
         [field.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
-        [field.widthAnchor constraintEqualToConstant:60],
-        [row.heightAnchor constraintEqualToConstant:44]
+        [field.widthAnchor constraintEqualToConstant:68],
+        [field.heightAnchor constraintEqualToConstant:32],
+        [row.heightAnchor constraintEqualToConstant:50]
     ]];
+
+    if (outField) *outField = field;
     return row;
 }
 

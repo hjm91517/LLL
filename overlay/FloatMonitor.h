@@ -15,4 +15,6 @@ BOOL isPerformanceMonitorEnabled(void);
 
 @interface CPUMonitorPanel : UIView
 + (instancetype)shared;
+- (void)startMonitoring;
+- (void)stopMonitoring;
 @end

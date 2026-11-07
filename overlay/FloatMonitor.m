@@ -4,7 +4,13 @@
 #import "BaseComponents.h"
 #import <mach/mach.h>
 
+static __weak UIView *g_cachedRoot = nil;
+
 static UIView * GetGameRootView(void) {
+    // 缓存住上次找到的根视图，避免每次转屏 / 点击都重扫一遍窗口
+    UIView *cached = g_cachedRoot;
+    if (cached && cached.window) return cached;
+
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
             if ([scene isKindOfClass:[UIWindowScene class]] &&
@@ -13,8 +19,10 @@ static UIView * GetGameRootView(void) {
                 for (UIWindow *window in windowScene.windows) {
                     if (window.windowLevel >= UIWindowLevelAlert) continue;
                     if ([window isKindOfClass:[BaseOverlayWindow class]]) continue;
-                    if (window.rootViewController && window.rootViewController.view.bounds.size.width > 100) {
-                        return window.rootViewController.view;
+                    UIView *root = window.rootViewController.view;
+                    if (root && root.bounds.size.width > 100) {
+                        g_cachedRoot = root;
+                        return root;
                     }
                 }
             }
@@ -366,12 +374,34 @@ void toggleMainWindow(void) {
         [self addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)]];
         [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tap:)]];
 
-        _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLink:)];
-        [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
-        _timer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(update) userInfo:nil repeats:YES];
-        [self update];
+        _link = nil;
+        _timer = nil;
+        (void)_timer;
     }
     return self;
+}
+
+// 只有真正要显示的时候才起 CADisplayLink + 1s 定时器，
+// 否则关掉监视后 singleton 还在空转烧电。
+- (void)startMonitoring {
+    if (!_link) {
+        _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLink:)];
+        [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    }
+    if (!_timer) {
+        _timer = [NSTimer timerWithTimeInterval:1.0 target:self selector:@selector(update) userInfo:nil repeats:YES];
+        [NSRunLoop.mainRunLoop addTimer:_timer forMode:NSRunLoopCommonModes];
+    }
+    [self update];
+}
+
+- (void)stopMonitoring {
+    [_link invalidate];
+    _link = nil;
+    [_timer invalidate];
+    _timer = nil;
+    _last = 0;
+    _frames = 0;
 }
 
 - (void)layoutSubviews {
@@ -473,20 +503,26 @@ void toggleMainWindow(void) {
 }
 @end
 
+static void AttachMonitorPanel(void) {
+    UIView *gameView = GetGameRootView();
+    if (!gameView) return;
+    CPUMonitorPanel *panel = [CPUMonitorPanel shared];
+    if (!panel.superview) {
+        panel.frame = CGRectMake(8, MAX(8, gameView.safeAreaInsets.top), 170, 70);
+        [gameView addSubview:panel];
+    }
+    panel.hidden = NO;
+    [panel startMonitoring];
+}
+
 void setPerformanceMonitorEnabled(BOOL enabled) {
     [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:@"PerformanceMonitorEnabled"];
     if (enabled) {
-        UIView *gameView = GetGameRootView();
-        if (gameView) {
-            CPUMonitorPanel *panel = [CPUMonitorPanel shared];
-            if (!panel.superview) {
-                panel.frame = CGRectMake(8, MAX(8, gameView.safeAreaInsets.top), 170, 70);
-                [gameView addSubview:panel];
-            }
-            panel.hidden = NO;
-        }
+        AttachMonitorPanel();
     } else {
-        [CPUMonitorPanel shared].hidden = YES;
+        CPUMonitorPanel *panel = [CPUMonitorPanel shared];
+        panel.hidden = YES;
+        [panel stopMonitoring];
     }
 }
 
@@ -495,14 +531,7 @@ BOOL isPerformanceMonitorEnabled(void) {
 }
 
 __attribute__((constructor)) static void MonitorInit() {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1.5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if (isPerformanceMonitorEnabled()) {
-            UIView *gameView = GetGameRootView();
-            if (gameView) {
-                CPUMonitorPanel *panel = [CPUMonitorPanel shared];
-                panel.frame = CGRectMake(8, MAX(8, gameView.safeAreaInsets.top), 170, 70);
-                [gameView addSubview:panel];
-            }
-        }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (isPerformanceMonitorEnabled()) AttachMonitorPanel();
     });
 }

@@ -24,5 +24,7 @@
 - (void)injEC;
 - (void)injBJ;
 - (void)injMisaki;
+- (void)injectPluginsWithType:(NSInteger)type;
+- (NSString *)summaryText:(NSString *)verb ok:(NSArray *)ok fail:(NSArray *)fail;
 
 @end

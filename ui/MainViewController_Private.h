@@ -29,6 +29,7 @@ typedef NS_ENUM(NSInteger, BGSwitchMode) {
 - (void)showAlert:(NSString *)t msg:(NSString *)m;
 - (void)confirm:(NSString *)t msg:(NSString *)m dest:(BOOL)d cb:(void(^)(void))cb;
 - (void)upEmpty:(UITableView *)tv;
+- (void)setTab:(UIButton *)tab active:(BOOL)active;
 - (void)saveQ;
 - (void)loadQ;
 - (void)reloadSrcData;

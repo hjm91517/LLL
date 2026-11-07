@@ -17,6 +17,8 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
     for (NSString *p in e) {
         NSString *fp = [dir stringByAppendingPathComponent:p];
         if (excludeDir && [fp hasPrefix:excludeDir]) {
+            BOOL exDir = NO;
+            if ([fm fileExistsAtPath:fp isDirectory:&exDir] && exDir) [e skipDescendants];
             continue;
         }
         BOOL isDir;
@@ -42,6 +44,8 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *countLabel;
 - (void)updateStatus:(NSString *)title count:(NSUInteger)count isError:(BOOL)err;
+- (void)present;
+- (void)dismiss;
 @end
 
 @implementation KIV

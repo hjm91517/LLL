@@ -10,15 +10,7 @@
         self.selectionStyle = UITableViewCellSelectionStyleNone;
 
         _card = [UIView new];
-        _card.backgroundColor = kCardBackgroundColor;
-        _card.layer.cornerRadius = kCardCornerRadius;
-        _card.clipsToBounds = NO;
-        _card.layer.borderWidth = 0.5;
-        _card.layer.borderColor = kCardBorderColor.CGColor;
-        _card.layer.shadowColor = [UIColor blackColor].CGColor;
-        _card.layer.shadowOffset = CGSizeMake(0, 2);
-        _card.layer.shadowRadius = 8;
-        _card.layer.shadowOpacity = 0.15;
+        LLLCardStyle(_card, kCardCornerRadius);
         _card.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:_card];
 
@@ -85,15 +77,7 @@
         self.selectionStyle = UITableViewCellSelectionStyleNone;
 
         _card = [UIView new];
-        _card.backgroundColor = kCardBackgroundColor;
-        _card.layer.cornerRadius = kCardCornerRadius;
-        _card.clipsToBounds = NO;
-        _card.layer.borderWidth = 0.5;
-        _card.layer.borderColor = kCardBorderColor.CGColor;
-        _card.layer.shadowColor = [UIColor blackColor].CGColor;
-        _card.layer.shadowOffset = CGSizeMake(0, 2);
-        _card.layer.shadowRadius = 8;
-        _card.layer.shadowOpacity = 0.15;
+        LLLCardStyle(_card, kCardCornerRadius);
         _card.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:_card];
 
@@ -137,15 +121,7 @@
         self.selectionStyle = UITableViewCellSelectionStyleNone;
 
         _card = [UIView new];
-        _card.backgroundColor = kCardBackgroundColor;
-        _card.layer.cornerRadius = kCardCornerRadius;
-        _card.clipsToBounds = NO;
-        _card.layer.borderWidth = 0.5;
-        _card.layer.borderColor = kCardBorderColor.CGColor;
-        _card.layer.shadowColor = [UIColor blackColor].CGColor;
-        _card.layer.shadowOffset = CGSizeMake(0, 2);
-        _card.layer.shadowRadius = 8;
-        _card.layer.shadowOpacity = 0.15;
+        LLLCardStyle(_card, kCardCornerRadius);
         _card.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:_card];
 
@@ -306,57 +282,35 @@ NSString* neteaseGameBasePath(void) {
     return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/games/com.netease"];
 }
 
-NSString* findBugudaoTarget(void) {
+// 一次遍历 packcache，找含指定脚本文件的子目录（布吉岛 / Misaki 共用）
+static NSArray<NSString*>* scanPackcacheFor(NSString *markerFile) {
     NSFileManager *fm = NSFileManager.defaultManager;
-    for (NSString *d in [fm contentsOfDirectoryAtPath:packcacheBasePath() error:nil]) {
-        NSString *p = [packcacheBasePath() stringByAppendingPathComponent:d];
-        BOOL isDir;
-        if ([fm fileExistsAtPath:p isDirectory:&isDir] && isDir) {
-            for (NSString *f in [fm contentsOfDirectoryAtPath:p error:nil]) {
-                if ([f caseInsensitiveCompare:@"HudAddonScript.mcp"] == NSOrderedSame)
-                    return p;
-            }
+    NSString *base = packcacheBasePath();
+    NSArray<NSString *> *dirs = [fm contentsOfDirectoryAtPath:base error:nil];
+    if (!dirs.count) return @[];
+
+    NSMutableArray *targets = [NSMutableArray arrayWithCapacity:4];
+    for (NSString *d in dirs) {
+        NSString *full = [base stringByAppendingPathComponent:d];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:full isDirectory:&isDir] || !isDir) continue;
+        if ([fm fileExistsAtPath:[full stringByAppendingPathComponent:markerFile]]) {
+            [targets addObject:full];
         }
     }
-    return nil;
+    return targets;
+}
+
+NSString* findBugudaoTarget(void) {
+    return scanPackcacheFor(@"HudAddonScript.mcp").firstObject;
 }
 
 NSArray<NSString*>* findAllBugudaoTargets(void) {
-    NSFileManager *fm = NSFileManager.defaultManager;
-    NSString *base = packcacheBasePath();
-    NSMutableArray *targets = [NSMutableArray new];
-    for (NSString *d in [fm contentsOfDirectoryAtPath:base error:nil]) {
-        NSString *full = [base stringByAppendingPathComponent:d];
-        BOOL isDir;
-        if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) {
-            for (NSString *f in [fm contentsOfDirectoryAtPath:full error:nil]) {
-                if ([f caseInsensitiveCompare:@"HudAddonScript.mcp"] == NSOrderedSame) {
-                    [targets addObject:full];
-                    break;
-                }
-            }
-        }
-    }
-    return targets;
+    return scanPackcacheFor(@"HudAddonScript.mcp");
 }
 
 NSArray<NSString*>* findAllMisakiTargets(void) {
-    NSFileManager *fm = NSFileManager.defaultManager;
-    NSString *base = packcacheBasePath();
-    NSMutableArray *targets = [NSMutableArray new];
-    for (NSString *d in [fm contentsOfDirectoryAtPath:base error:nil]) {
-        NSString *full = [base stringByAppendingPathComponent:d];
-        BOOL isDir;
-        if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) {
-            for (NSString *f in [fm contentsOfDirectoryAtPath:full error:nil]) {
-                if ([f caseInsensitiveCompare:@"MisakiCoreScript.mcp"] == NSOrderedSame) {
-                    [targets addObject:full];
-                    break;
-                }
-            }
-        }
-    }
-    return targets;
+    return scanPackcacheFor(@"MisakiCoreScript.mcp");
 }
 
 NSRegularExpression* killenRegex(void) {
@@ -492,10 +446,25 @@ static BaseOverlayWindow* toastWin(void) {
     static BaseOverlayWindow *w;
     static dispatch_once_t t;
     dispatch_once(&t, ^{
-        w = [[BaseOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+        if (@available(iOS 13.0, *)) {
+            UIWindowScene *scene = nil;
+            for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+                if ([s isKindOfClass:[UIWindowScene class]] &&
+                    s.activationState == UISceneActivationStateForegroundActive) {
+                    scene = (UIWindowScene *)s;
+                    break;
+                }
+            }
+            // iOS13+ 必须绑 windowScene，否则 window 不上屏
+            w = scene ? [[BaseOverlayWindow alloc] initWithWindowScene:scene]
+                      : [[BaseOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+        } else {
+            w = [[BaseOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+        }
         w.windowLevel = UIWindowLevelAlert + 10;
         w.userInteractionEnabled = NO;
         w.rootViewController = [UIViewController new];
+        w.hidden = NO;
     });
     return w;
 }
@@ -783,16 +752,23 @@ void showWatermark(void) {
     watermarkWin.rootViewController = [UIViewController new];
 
     NSString *text = @"云落制作 QQ群:1071596112";
-    CGSize textSize = [text sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:14 weight:UIFontWeightMedium]}];
+    UIFont *wmFont = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    CGSize textSize = [text sizeWithAttributes:@{NSFontAttributeName: wmFont}];
     CGFloat width = textSize.width + 32;
     CGFloat height = textSize.height + 20;
 
-    UIEdgeInsets safe = UIEdgeInsetsZero;
-    if (@available(iOS 11.0, *)) {
-        safe = watermarkWin.safeAreaInsets;
+    // 窗口刚建出来时 safeAreaInsets 还是 0，得从状态栏拿真实顶部安全区
+    CGFloat topInset = 8;
+    if (@available(iOS 13.0, *)) {
+        if (scene.statusBarManager) {
+            topInset = MAX(8, CGRectGetHeight(scene.statusBarManager.statusBarFrame));
+        }
+    } else {
+        topInset = MAX(8, UIApplication.sharedApplication.statusBarFrame.size.height);
     }
+
     CGFloat x = screen.size.width - width - 12;
-    CGFloat y = MAX(safe.top + 8, 8);
+    CGFloat y = topInset + 6;
     watermarkWin.frame = CGRectMake(x, y, width, height);
 
     WatermarkView *wm = [[WatermarkView alloc] initWithFrame:watermarkWin.bounds];

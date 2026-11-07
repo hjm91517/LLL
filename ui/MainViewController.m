@@ -55,6 +55,7 @@ static void lllReload(UITableView *tv) {
 - (void)dealloc {
     _dis = YES;
     if (_timer) dispatch_source_cancel(_timer);
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self stopMusic];
     [self.bgTimer invalidate];
     [self stopVideoBackground];
@@ -70,7 +71,10 @@ static void lllReload(UITableView *tv) {
     [self.view addGestureRecognizer:tap];
 
     _cardView = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
-    _cardView.layer.cornerRadius = 24;
+    _cardView.layer.cornerRadius = 26;
+    _cardView.layer.cornerCurve = kCACornerCurveContinuous;
+    _cardView.layer.borderWidth = kHairline;
+    _cardView.layer.borderColor = kCardBorderColor.CGColor;
     _cardView.clipsToBounds = YES;
     _cardView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:_cardView];
@@ -114,13 +118,16 @@ static void lllReload(UITableView *tv) {
     [content addSubview:tit];
 
     UIView *div = [UIView new];
-    div.backgroundColor = [UIColor colorWithWhite:0.25 alpha:0.5];
+    div.backgroundColor = kDividerColor;
     div.translatesAutoresizingMaskIntoConstraints = NO;
     [content addSubview:div];
 
     UIView *sidebar = [UIView new];
-    sidebar.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.6];
-    sidebar.layer.cornerRadius = 16;
+    sidebar.backgroundColor = kSidebarBackgroundColor;
+    sidebar.layer.cornerRadius = kSidebarCornerRadius;
+    sidebar.layer.cornerCurve = kCACornerCurveContinuous;
+    sidebar.layer.borderWidth = kHairline;
+    sidebar.layer.borderColor = kCardBorderColor.CGColor;
     sidebar.translatesAutoresizingMaskIntoConstraints = NO;
     [content addSubview:sidebar];
 
@@ -151,8 +158,11 @@ static void lllReload(UITableView *tv) {
     ]];
 
     UIView *cv = [UIView new];
-    cv.backgroundColor = [UIColor colorWithWhite:0.06 alpha:0.4];
-    cv.layer.cornerRadius = 16;
+    cv.backgroundColor = kContentBackgroundColor;
+    cv.layer.cornerRadius = kContentCornerRadius;
+    cv.layer.cornerCurve = kCACornerCurveContinuous;
+    cv.layer.borderWidth = kHairline;
+    cv.layer.borderColor = kCardBorderColor.CGColor;
     cv.translatesAutoresizingMaskIntoConstraints = NO;
     [content addSubview:cv];
     self.contentContainerView = cv;
@@ -192,8 +202,11 @@ static void lllReload(UITableView *tv) {
     [_pab addSubview:pclr]; [_pab addSubview:ec]; [_pab addSubview:bj]; [_pab addSubview:ms];
 
     _musicControlBar = [UIView new]; _musicControlBar.translatesAutoresizingMaskIntoConstraints = NO; _musicControlBar.hidden = YES;
-    _musicControlBar.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.9];
+    _musicControlBar.backgroundColor = kBarBackgroundColor;
     _musicControlBar.layer.cornerRadius = kMusicControlBarRadius;
+    _musicControlBar.layer.cornerCurve = kCACornerCurveContinuous;
+    _musicControlBar.layer.borderWidth = kHairline;
+    _musicControlBar.layer.borderColor = kCardBorderColor.CGColor;
     [cv addSubview:_musicControlBar];
 
     UIButton *prevBtn = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -209,7 +222,8 @@ static void lllReload(UITableView *tv) {
     _playPauseBtn.translatesAutoresizingMaskIntoConstraints = NO;
     if (@available(iOS 13.0, *)) [_playPauseBtn setImage:[UIImage systemImageNamed:@"play.fill"] forState:UIControlStateNormal];
     _playPauseBtn.tintColor = UIColor.whiteColor; _playPauseBtn.backgroundColor = kAccentBlue;
-    _playPauseBtn.layer.cornerRadius = 24; _playPauseBtn.clipsToBounds = YES;
+    _playPauseBtn.layer.cornerRadius = 24; _playPauseBtn.clipsToBounds = NO;
+    LLLGlow(_playPauseBtn, kAccentBlue, 14, 0.55);
     [_playPauseBtn addTarget:self action:@selector(togglePlayPause) forControlEvents:UIControlEventTouchUpInside];
     [_musicControlBar addSubview:_playPauseBtn];
 
@@ -365,21 +379,48 @@ static void lllReload(UITableView *tv) {
 #pragma mark - 按钮工厂
 
 - (void)bgTapped:(UITapGestureRecognizer *)gr {
-    if (!CGRectContainsPoint(self.view.subviews.firstObject.frame, [gr locationInView:self.view]))
-        toggleMainWindow();
+    // 只有点卡片外面才关窗，点卡片内部不该关
+    CGPoint p = [gr locationInView:self.view];
+    if (!CGRectContainsPoint(_cardView.frame, p)) toggleMainWindow();
+}
+
+- (void)setTab:(UIButton *)tab active:(BOOL)active {
+    if (!tab) return;
+    tab.tintColor = active ? kTabActiveColor : kTabNormalColor;
+    tab.backgroundColor = active ? kTabActivePillColor : UIColor.clearColor;
+    tab.transform = active ? CGAffineTransformMakeScale(1.04, 1.04)
+                           : CGAffineTransformIdentity;
 }
 
 - (UIButton *)tBtn:(NSString *)t ico:(NSString *)i act:(SEL)a {
     UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-    b.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
+    b.tintColor = kTabNormalColor;
+    b.titleLabel.font = [UIFont systemFontOfSize:kTabFontSize weight:UIFontWeightSemibold];
     b.titleLabel.textAlignment = NSTextAlignmentCenter;
-    if (@available(iOS 13.0, *)) {
-        [b setImage:[UIImage systemImageNamed:i] forState:UIControlStateNormal];
-    }
-    [b setTitle:t forState:UIControlStateNormal];
-    b.tintColor = UIColor.whiteColor;
     b.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    b.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
+
+    UIImage *icon = nil;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg =
+            [UIImageSymbolConfiguration configurationWithPointSize:19 weight:UIImageSymbolWeightMedium];
+        icon = [UIImage systemImageNamed:i withConfiguration:cfg];
+    }
+    [b setImage:icon forState:UIControlStateNormal];
+
+    [b setTitle:t forState:UIControlStateNormal];
+    [b setTitleColor:kTabNormalColor forState:UIControlStateNormal];
+    [b setTitleColor:kTabActiveColor forState:UIControlStateHighlighted];
+
+    // 竖排：图标在上、文字在下。iOS15 的 UIButtonConfiguration 这边不用，
+    // 保持 14.0 一致表现，insets 的弃用警告已在 Makefile 里关掉。
+    b.imageEdgeInsets = UIEdgeInsetsMake(-11, 0, 0, -b.titleLabel.intrinsicContentSize.width);
+    b.titleEdgeInsets = UIEdgeInsetsMake(19, -icon.size.width, 0, 0);
+
+    b.layer.cornerRadius = kPillCornerRadius;
+    b.layer.cornerCurve = kCACornerCurveContinuous;
+    b.backgroundColor = UIColor.clearColor;
+    b.clipsToBounds = NO;
+
     [b addTarget:self action:a forControlEvents:UIControlEventTouchUpInside];
     b.translatesAutoresizingMaskIntoConstraints = NO;
     return b;
@@ -435,12 +476,12 @@ static void lllReload(UITableView *tv) {
         to.hidden = NO;
         for (UITableView *v in others) v.hidden = YES;
         self.settingsView.hidden = YES;
-        self.tab1.tintColor = (to == self.st)  ? UIColor.whiteColor : [UIColor colorWithWhite:0.5 alpha:1];
-        self.tab2.tintColor = (to == self.qt)  ? UIColor.whiteColor : [UIColor colorWithWhite:0.5 alpha:1];
-        self.tab3.tintColor = (to == self.pt)  ? UIColor.whiteColor : [UIColor colorWithWhite:0.5 alpha:1];
-        self.tab4.tintColor = (to == self.pqt) ? UIColor.whiteColor : [UIColor colorWithWhite:0.5 alpha:1];
-        self.tab6.tintColor = (to == self.musict) ? UIColor.whiteColor : [UIColor colorWithWhite:0.5 alpha:1];
-        self.tab7.tintColor = [UIColor colorWithWhite:0.5 alpha:1];
+        [self setTab:self.tab1 active:(to == self.st)];
+        [self setTab:self.tab2 active:(to == self.qt)];
+        [self setTab:self.tab3 active:(to == self.pt)];
+        [self setTab:self.tab4 active:(to == self.pqt)];
+        [self setTab:self.tab6 active:(to == self.musict)];
+        [self setTab:self.tab7 active:NO];
     } completion:nil];
 
     self.ab.hidden = (bar != self.ab);
@@ -465,12 +506,12 @@ static void lllReload(UITableView *tv) {
     [UIView transitionWithView:self.view duration:0.25 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
         for (UITableView *v in @[self.st, self.qt, self.pt, self.pqt, self.musict]) v.hidden = YES;
         self.settingsView.hidden = NO;
-        self.tab1.tintColor = [UIColor colorWithWhite:0.5 alpha:1];
-        self.tab2.tintColor = [UIColor colorWithWhite:0.5 alpha:1];
-        self.tab3.tintColor = [UIColor colorWithWhite:0.5 alpha:1];
-        self.tab4.tintColor = [UIColor colorWithWhite:0.5 alpha:1];
-        self.tab6.tintColor = [UIColor colorWithWhite:0.5 alpha:1];
-        self.tab7.tintColor = UIColor.whiteColor;
+        [self setTab:self.tab1 active:NO];
+        [self setTab:self.tab2 active:NO];
+        [self setTab:self.tab3 active:NO];
+        [self setTab:self.tab4 active:NO];
+        [self setTab:self.tab6 active:NO];
+        [self setTab:self.tab7 active:YES];
     } completion:nil];
     self.ab.hidden = self.pab.hidden = self.musicControlBar.hidden = YES;
     NSLayoutConstraint *old = objc_getAssociatedObject(self, "bot");
@@ -552,14 +593,52 @@ static void lllReload(UITableView *tv) {
     else if (tv == self.pt) { cnt=self.pln.count; tx=@"暂无插件\n将文件夹放入 mcp_plugins 目录"; }
     else if (tv == self.pqt) { cnt=self.plqn.count; tx=@"队列为空\n在 mcp插件 页面添加"; }
     if (!cnt) {
-        UIView *c = [[UIView alloc] initWithFrame:CGRectMake(0,0,tv.bounds.size.width,180)];
-        UIImageView *iv = [[UIImageView alloc] init]; iv.translatesAutoresizingMaskIntoConstraints=NO; iv.contentMode=UIViewContentModeScaleAspectFit;
-        if (@available(iOS 13.0, *)) { NSString *im = @"cube.box"; if (tv==self.qt) im=@"tray"; else if (tv==self.pt) im=@"puzzlepiece"; else if (tv==self.pqt) im=@"arrow.right.doc.on.clipboard"; iv.image=[UIImage systemImageNamed:im]; iv.tintColor=[UIColor colorWithWhite:0.3 alpha:1]; }
-        [c addSubview:iv];
-        UILabel *l = [[UILabel alloc] init]; l.text=tx; l.textAlignment=NSTextAlignmentCenter; l.textColor=[UIColor colorWithWhite:0.4 alpha:1]; l.numberOfLines=0; l.font=[UIFont systemFontOfSize:14]; l.translatesAutoresizingMaskIntoConstraints=NO; [c addSubview:l];
+        UIView *c = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tv.bounds.size.width, 220)];
+
+        UIView *ring = [UIView new];
+        ring.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.05];
+        ring.layer.cornerRadius = 34;
+        ring.layer.borderWidth = kHairline;
+        ring.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.08].CGColor;
+        ring.translatesAutoresizingMaskIntoConstraints = NO;
+        [c addSubview:ring];
+
+        UIImageView *iv = [[UIImageView alloc] init];
+        iv.translatesAutoresizingMaskIntoConstraints = NO;
+        iv.contentMode = UIViewContentModeScaleAspectFit;
+        if (@available(iOS 13.0, *)) {
+            NSString *im = @"cube.box";
+            if (tv == self.qt)  im = @"tray";
+            else if (tv == self.pt)  im = @"puzzlepiece";
+            else if (tv == self.pqt) im = @"arrow.right.doc.on.clipboard";
+            UIImageSymbolConfiguration *cfg =
+                [UIImageSymbolConfiguration configurationWithPointSize:26 weight:UIImageSymbolWeightRegular];
+            iv.image = [UIImage systemImageNamed:im withConfiguration:cfg];
+            iv.tintColor = kEmptyIconColor;
+        }
+        [ring addSubview:iv];
+
+        UILabel *l = [[UILabel alloc] init];
+        l.text = tx;
+        l.textAlignment = NSTextAlignmentCenter;
+        l.textColor = kEmptyTextColor;
+        l.numberOfLines = 0;
+        l.font = [UIFont systemFontOfSize:kEmptyStateFontSize weight:UIFontWeightRegular];
+        l.translatesAutoresizingMaskIntoConstraints = NO;
+        [c addSubview:l];
+
         [NSLayoutConstraint activateConstraints:@[
-            [iv.centerXAnchor constraintEqualToAnchor:c.centerXAnchor], [iv.topAnchor constraintEqualToAnchor:c.topAnchor constant:40], [iv.widthAnchor constraintEqualToConstant:50], [iv.heightAnchor constraintEqualToConstant:50],
-            [l.topAnchor constraintEqualToAnchor:iv.bottomAnchor constant:16], [l.leadingAnchor constraintEqualToAnchor:c.leadingAnchor constant:20], [l.trailingAnchor constraintEqualToAnchor:c.trailingAnchor constant:-20]
+            [ring.centerXAnchor constraintEqualToAnchor:c.centerXAnchor],
+            [ring.topAnchor constraintEqualToAnchor:c.topAnchor constant:46],
+            [ring.widthAnchor constraintEqualToConstant:68],
+            [ring.heightAnchor constraintEqualToConstant:68],
+            [iv.centerXAnchor constraintEqualToAnchor:ring.centerXAnchor],
+            [iv.centerYAnchor constraintEqualToAnchor:ring.centerYAnchor],
+            [iv.widthAnchor constraintEqualToConstant:32],
+            [iv.heightAnchor constraintEqualToConstant:32],
+            [l.topAnchor constraintEqualToAnchor:ring.bottomAnchor constant:16],
+            [l.leadingAnchor constraintEqualToAnchor:c.leadingAnchor constant:24],
+            [l.trailingAnchor constraintEqualToAnchor:c.trailingAnchor constant:-24]
         ]];
         tv.backgroundView = c;
     } else tv.backgroundView = nil;
