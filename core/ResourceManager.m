@@ -249,7 +249,7 @@ static void LLLJournalNote(NSString *dst) {
             [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel, @"bak": @"" }];
             return;
         }
-        NSString *key = [NSString stringWithFormat:@"%lu", (unsigned long)sJournalRoot.hash];
+        NSString *key = LLLStableKeyPublic(sJournalRoot);
         NSString *b = [[LLLBackupRoot() stringByAppendingPathComponent:key]
                        stringByAppendingPathComponent:rel];
         ensureDir(b.stringByDeletingLastPathComponent);
@@ -262,8 +262,17 @@ static void LLLJournalNote(NSString *dst) {
     [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel, @"bak": bak }];
 }
 
+static NSMutableArray *gAllJournal = nil;
+
 static void LLLJournalCommit(NSArray *entries) {
     if (!entries.count) return;
+    if (!gAllJournal) gAllJournal = [NSMutableArray array];
+    [gAllJournal addObjectsFromArray:entries];
+}
+
+// 一轮注入只落盘一次，避免 4 万条边写边序列化
+static void LLLJournalFlush(void) {
+    if (!gAllJournal.count) { lllLog(@"记账 0 条"); return; }
     NSString *p = LLLJournalPath();
     NSMutableArray *all = [NSMutableArray array];
     NSData *d = [NSData dataWithContentsOfFile:p];
@@ -271,10 +280,11 @@ static void LLLJournalCommit(NSArray *entries) {
         id j = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
         if ([j isKindOfClass:[NSArray class]]) [all addObjectsFromArray:(NSArray *)j];
     }
-    [all addObjectsFromArray:entries];
+    [all addObjectsFromArray:gAllJournal];
     NSData *o = [NSJSONSerialization dataWithJSONObject:all options:0 error:nil];
     [o writeToFile:p atomically:YES];
-    lllLog(@"记账 %lu 条，累计 %lu 条", (unsigned long)entries.count, (unsigned long)all.count);
+    lllLog(@"记账 %lu 条，累计 %lu 条", (unsigned long)gAllJournal.count, (unsigned long)all.count);
+    gAllJournal = nil;
 }
 
 static void LLLReportTick(NSString *path);
@@ -514,6 +524,9 @@ static NSUInteger lllCountFiles(NSString *dir) {
                        c.length > 240 ? [c substringToIndex:240] : (c ?: @""));
             }
         }
+
+        LLLJournalFlush();
+        lllMD5CacheSave();
 
         dispatch_async(dispatch_get_main_queue(), ^{
             LLLProgressHide();

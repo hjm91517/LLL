@@ -64,6 +64,8 @@ NSString* lllPackDirName(void);
 BOOL lllStripSignatures(NSString *dir);
 void lllLogPackRootFiles(NSString *dir);
 BOOL lllRewriteFolderMD5(NSString *dir);
+NSString *LLLStableKeyPublic(NSString *s);
+void lllMD5CacheSave(void);
 NSString* findBugudaoTarget(void);
 NSArray<NSString*>* findAllBugudaoTargets(void);
 NSArray<NSString*>* findAllMisakiTargets(void);

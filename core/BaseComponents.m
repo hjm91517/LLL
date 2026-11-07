@@ -400,6 +400,19 @@ NSArray<NSString*>* detectLegacyPatchDirs(void) {
 
 #pragma mark - 公共日志
 
+static NSFileHandle *gLLLLogHandle = nil;
+static dispatch_queue_t gLLLLogQueue = NULL;
+
+static void LLLLogSetupLocked(void) {
+    if (gLLLLogHandle) return;
+    NSString *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    if (!docs.length) return;
+    NSString *p = [docs stringByAppendingPathComponent:@"LLL_runtime.log"];
+    NSFileManager *fm = NSFileManager.defaultManager;
+    if (![fm fileExistsAtPath:p]) [fm createFileAtPath:p contents:nil attributes:nil];
+    gLLLLogHandle = [NSFileHandle fileHandleForWritingAtPath:p];
+}
+
 void lllLog(NSString *fmt, ...) {
     @try {
         va_list ap; va_start(ap, fmt);
@@ -410,19 +423,21 @@ void lllLog(NSString *fmt, ...) {
         df.dateFormat = @"HH:mm:ss.SSS";
         NSString *line = [NSString stringWithFormat:@"[%@] %@\n",
                           [df stringFromDate:[NSDate date]], body];
+        NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
 
-        NSString *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
-        if (!docs.length) return;
-        NSString *p = [docs stringByAppendingPathComponent:@"LLL_runtime.log"];
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            gLLLLogQueue = dispatch_queue_create("lll.log", DISPATCH_QUEUE_SERIAL);
+        });
 
-        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:p];
-        if (!fh) {
-            [line writeToFile:p atomically:YES encoding:NSUTF8StringEncoding error:nil];
-            return;
-        }
-        [fh seekToEndOfFile];
-        [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-        [fh closeFile];
+        dispatch_async(gLLLLogQueue, ^{
+            LLLLogSetupLocked();
+            if (!gLLLLogHandle) return;
+            @try {
+                [gLLLLogHandle seekToEndOfFile];
+                [gLLLLogHandle writeData:data];
+            } @catch (__unused NSException *e) { }
+        });
     } @catch (__unused NSException *e) { }
 }
 
@@ -618,27 +633,79 @@ void lllLogPackRootFiles(NSString *dir) {
 
 #pragma mark - folder_md5.json 重写
 
-static NSString *LLLMD5OfFile(NSString *path, BOOL uppercase) {
-    // 千万别用 NSDataReadingMappedIfSafe —— 游戏在跑的时候映射它的文件，
-    // 页面一被替换就 SIGBUS，那是杀不掉的崩溃。老老实实读进内存。
-    NSDictionary *attr = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
-    if (attr) {
-        unsigned long long size = [attr[NSFileSize] unsignedLongLongValue];
-        if (size > 8ULL * 1024 * 1024) return nil;     // 超大文件跳过，别把内存撑爆
+static NSMutableDictionary *gMD5Cache = nil;
+static NSMutableSet *gMD5Used = nil;
+static NSString *gMD5CachePath = nil;
+
+static void LLLMD5CacheLoad(void) {
+    if (gMD5Cache) return;
+    gMD5Cache = [NSMutableDictionary dictionary];
+    gMD5Used = [NSMutableSet set];
+
+    NSString *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    if (!docs.length) return;
+    gMD5CachePath = [docs stringByAppendingPathComponent:@".lll_md5cache.plist"];
+
+    NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:gMD5CachePath];
+    if ([d isKindOfClass:NSDictionary.class]) [gMD5Cache addEntriesFromDictionary:d];
+}
+
+void lllMD5CacheSave(void) {
+    if (!gMD5Cache || !gMD5CachePath) return;
+    NSMutableDictionary *keep = [NSMutableDictionary dictionary];
+    for (NSString *k in gMD5Used) {
+        id v = gMD5Cache[k];
+        if (v) keep[k] = v;
     }
+    [keep writeToFile:gMD5CachePath atomically:YES];
+    gMD5Cache = keep;
+    [gMD5Used removeAllObjects];
+}
+
+static NSString *LLLMD5OfFile(NSString *path, BOOL uppercase) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSDictionary *attr = [fm attributesOfItemAtPath:path error:nil];
+    if (!attr) return nil;
+
+    unsigned long long size = [attr[NSFileSize] unsignedLongLongValue];
+    if (size > 8ULL * 1024 * 1024) return nil;
+
+    NSDate *mtime = attr[NSFileModificationDate];
+    NSString *ck = [NSString stringWithFormat:@"%@|%llu|%.0f", path, size, [mtime timeIntervalSince1970]];
+    LLLMD5CacheLoad();
+
+    NSString *hit = gMD5Cache[ck];
+    if (hit.length == 32) {
+        [gMD5Used addObject:ck];
+        if (!uppercase) return [hit lowercaseString];
+        return hit;
+    }
+
     NSData *d = [NSData dataWithContentsOfFile:path options:0 error:nil];
     if (!d) return nil;
     unsigned char digest[CC_MD5_DIGEST_LENGTH];
     CC_MD5(d.bytes, (CC_LONG)d.length, digest);
+
     NSMutableString *s = [NSMutableString stringWithCapacity:32];
-    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
-        [s appendFormat:(uppercase ? @"%02X" : @"%02x"), digest[i]];
-    }
-    return s;
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) [s appendFormat:@"%02X", digest[i]];
+
+    gMD5Cache[ck] = s;
+    [gMD5Used addObject:ck];
+
+    return uppercase ? s : [s lowercaseString];
 }
 
-// 3.10 的补丁包靠 folder_md5.json 里的哈希清单做完整性校验。
-// 加了文件不改清单 → 整包判无效。这里按现存文件重算一遍。
+// 稳定的短哈希（NSString.hash 跨进程不保证一致，不能拿来当目录名）
+static NSString *LLLStableKey(NSString *str) {
+    unsigned long h = 5381;
+    for (NSUInteger i = 0; i < str.length; i++) {
+        h = ((h << 5) + h) + (unsigned long)[str characterAtIndex:i];
+    }
+    return [NSString stringWithFormat:@"%08lx", (h & 0xFFFFFFFFUL)];
+}
+
+NSString *LLLStableKeyPublic(NSString *s) { return LLLStableKey(s); }
+
 BOOL lllRewriteFolderMD5(NSString *dir) {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *p = [dir stringByAppendingPathComponent:@"folder_md5.json"];

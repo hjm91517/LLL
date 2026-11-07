@@ -33,6 +33,8 @@ static void lllReload(UITableView *tv) {
 
 @interface LLLBarsView : UIView
 @property (nonatomic, strong) NSMutableArray<NSNumber *> *levels;
+- (void)setLevel:(CGFloat)v index:(NSInteger)i;
+- (void)setLevels:(const CGFloat *)vals count:(NSInteger)n;
 @end
 
 @implementation LLLBarsView
@@ -48,6 +50,12 @@ static void lllReload(UITableView *tv) {
 - (void)setLevel:(CGFloat)v index:(NSInteger)i {
     if (i < 0 || i >= (NSInteger)_levels.count) return;
     _levels[(NSUInteger)i] = @(v);
+}
+
+// 16 条一起设完只重绘一次，别每条都 setNeedsDisplay
+- (void)setLevels:(const CGFloat *)vals count:(NSInteger)n {
+    NSInteger max = MIN(n, (NSInteger)_levels.count);
+    for (NSInteger i = 0; i < max; i++) _levels[(NSUInteger)i] = @(vals[i]);
     [self setNeedsDisplay];
 }
 - (void)drawRect:(CGRect)rect {
@@ -1310,10 +1318,12 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
             if (base < 0.02f) base = 0.02f;
             if (base > 1.0f) base = 1.0f;
         }
+        CGFloat vals[16];
         for (int i = 0; i < 16; i++) {
             CGFloat k = 0.5 + 0.5 * (((i * 7) % 13) / 12.0);
-            [_bars setLevel:base * k index:i];
+            vals[i] = base * k;
         }
+        [_bars setLevels:vals count:16];
     }
 
     // 歌词
