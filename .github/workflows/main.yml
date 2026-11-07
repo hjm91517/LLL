@@ -8,11 +8,17 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: 'Runner 标签（官方：macos-15 / macos-26；自建：写你自己的）'
+        description: 'Runner 标签（官方：macos-15 / macos-26 / macos-latest）'
         default: 'macos-15'
       archs:
         description: '目标架构'
         default: 'arm64 arm64e'
+      deployment_target:
+        description: 'iOS 最低版本'
+        default: '14.0'
+      package_scheme:
+        description: 'rootful / rootless / roothide'
+        default: 'rootful'
 
 permissions:
   contents: write
@@ -34,12 +40,10 @@ jobs:
 
       - name: Print runner info
         run: |
-          echo "runner OS : $RUNNER_OS"
+          echo "runner OS  : $RUNNER_OS"
           echo "runner arch: $RUNNER_ARCH"
-          uname -a
           sw_vers
           xcodebuild -version || true
-          xcode-select -p
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -48,20 +52,22 @@ jobs:
 
       - name: Resolve config
         run: |
-          echo "ARCHS=${{ inputs.archs || 'arm64 arm64e' }}" >> $GITHUB_ENV
-          echo "PKG_NAME=$(basename $GITHUB_REPOSITORY)" >> $GITHUB_ENV
+          echo "ARCHS=${{ inputs.archs || 'arm64 arm64e' }}"        >> $GITHUB_ENV
+          echo "IOS_DT=${{ inputs.deployment_target || '14.0' }}"   >> $GITHUB_ENV
+          echo "PKG_SCHEME=${{ inputs.package_scheme || 'rootful' }}" >> $GITHUB_ENV
 
       - name: Install host deps
         run: |
           brew update >/dev/null 2>&1 || true
           brew install ldid xz dpkg || brew upgrade ldid xz dpkg
+          ldid -v 2>&1 | head -n 2 || true
 
       - name: Cache Theos + SDKs
         id: theos-cache
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.theos
-          key: theos-${{ runner.os }}-${{ runner.arch }}-v3
+          key: theos-${{ runner.os }}-${{ runner.arch }}-v4
 
       - name: Install Theos
         if: steps.theos-cache.outputs.cache-hit != 'true'
@@ -73,49 +79,78 @@ jobs:
           unzip -q /tmp/sdks.zip -d /tmp
           cp -R /tmp/sdks-master/iPhoneOS16.5.sdk "$THEOS/sdks/"
           test -f "$THEOS/makefiles/common.mk"
+          ls -1 "$THEOS/sdks"
 
-      - name: Build
+      - name: Precheck project layout
         run: |
           set -euo pipefail
-          if [ -f Makefile ] || [ -f makefile ]; then
-            make clean || true
-            make all FINALPACKAGE=1 DEBUG=0 ARCHS="$ARCHS" \
-                 TARGET="iphone:clang:latest:12.0"
-            make package FINALPACKAGE=1 DEBUG=0 ARCHS="$ARCHS" \
-                 TARGET="iphone:clang:latest:12.0" || true
-          else
-            SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-            SRC=$(find . \( -name '*.m' -o -name '*.mm' -o -name '*.c' -o -name '*.cpp' \) \
-                  -not -path './.theos/*' -not -path './dist/*' | tr '\n' ' ')
-            AF=""
-            for a in $ARCHS; do AF="$AF -arch $a"; done
-            mkdir -p dist
-            xcrun --sdk iphoneos clang $AF -miphoneos-version-min=12.0 \
-              -isysroot "$SDK" -dynamiclib -fobjc-arc -fmodules -O2 \
-              -undefined dynamic_lookup \
-              -install_name "@executable_path/$PKG_NAME.dylib" \
-              -o "dist/$PKG_NAME.dylib" $SRC
+          echo "--- 根目录 ---"
+          ls -la
+          if [ ! -f Makefile ] && [ -f Makefile.make ]; then
+            echo "!! 发现 Makefile.make 但缺 Makefile，自动改名"
+            mv Makefile.make Makefile
           fi
+          test -f Makefile || { echo "!! 没有 Makefile，无法构建"; exit 1; }
+          echo "--- Makefile 头部 ---"
+          head -n 20 Makefile
+
+      - name: Build (Theos)
+        run: |
+          set -euo pipefail
+          EXTRA=""
+          case "$PKG_SCHEME" in
+            rootless) EXTRA="THEOS_PACKAGE_SCHEME=rootless" ;;
+            roothide) EXTRA="THEOS_PACKAGE_SCHEME=roothide" ;;
+          esac
+
+          make clean || true
+          make all \
+            FINALPACKAGE=1 DEBUG=0 \
+            ARCHS="$ARCHS" \
+            TARGET="iphone:clang:latest:$IOS_DT" \
+            $EXTRA
+
+          echo "--- 打包（尽力而为，失败不影响 dylib）---"
+          make package \
+            FINALPACKAGE=1 DEBUG=0 \
+            ARCHS="$ARCHS" \
+            TARGET="iphone:clang:latest:$IOS_DT" \
+            $EXTRA || echo "!! package 跳过"
 
       - name: Collect & sign
         run: |
           set -euo pipefail
           mkdir -p dist
-          find . -name '*.dylib' -not -path './dist/*' -not -path './.git/*' -print0 |
-          while IFS= read -r -d '' f; do
-            cp -f "$f" "dist/$(basename "$f")"
-            ldid -S "dist/$(basename "$f")"
-            lipo -info "dist/$(basename "$f")" || true
-          done
-          find . -name '*.deb' -exec cp -f {} dist/ \; 2>/dev/null || true
-          ls -la dist
-          test "$(ls -A dist)" || { echo "!! 没产出"; exit 1; }
+          ENT=""
+          [ -f ".github/entitlements.plist" ] && ENT=".github/entitlements.plist"
 
-      - uses: actions/upload-artifact@v4
+          echo "--- .theos/obj 产物 ---"
+          find .theos -name '*.dylib' -print 2>/dev/null || true
+
+          found=0
+          while IFS= read -r -d '' f; do
+            out="dist/$(basename "$f")"
+            cp -f "$f" "$out"
+            if [ -n "$ENT" ]; then ldid -S"$ENT" "$out"; else ldid -S "$out"; fi
+            echo "== $out"
+            lipo -info "$out" || true
+            otool -L "$out" | head -20 || true
+            found=$((found+1))
+          done < <(find . -name '*.dylib' -not -path './dist/*' -not -path './.git/*' -print0)
+
+          find . -name '*.deb' -not -path './.git/*' -exec cp -f {} dist/ \; 2>/dev/null || true
+
+          echo "--- dist ---"
+          ls -la dist
+          test "$found" -gt 0 || { echo "!! 一个 dylib 都没生成"; exit 1; }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: dylib-${{ github.sha }}
           path: dist/
           if-no-files-found: error
+          retention-days: 30
 
       - name: Release on tag
         if: startsWith(github.ref, 'refs/tags/v')

@@ -1,0 +1,9 @@
+Package: com.yunluo.lll
+Name: LLL
+Version: 26.2.4.1
+Architecture: iphoneos-arm
+Description: 材质包注入 / 打击特效 / 音乐盒 / 悬浮球
+Maintainer: yunluo
+Author: yunluo
+Section: Tweaks
+Depends: mobilesubstrate
