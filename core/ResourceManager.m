@@ -246,7 +246,6 @@ static void LLLJournalNote(NSString *dst) {
         unsigned long long sz = attr ? [attr[NSFileSize] unsignedLongLongValue] : 0;
         if (sz > 2ULL * 1024 * 1024) {          // 超过 2MB 不备份，避免拖慢注入
             lllLog(@"跳过大文件备份: %@", dst.lastPathComponent);
-            sJournalRoot = sJournalRoot;
             [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel, @"bak": @"" }];
             return;
         }
