@@ -145,12 +145,20 @@
     diag.font = [UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightRegular];
     diag.textColor = [UIColor colorWithWhite:0.66 alpha:1.0];
     NSArray<NSString*> *mcpTargets = findAllMCPTargets();
+    NSArray<NSString*> *legacyDirs = detectLegacyPatchDirs();
+    BOOL registered = lllInjectPackRegistered();
     diag.text = [NSString stringWithFormat:
-                 @"根目录\n%@\n\n注入目标\n%@\n\nMCP 目标 %lu 个\n%@",
+                 @"游戏根目录\n%@\n\n"
+                 @"注入包\n%@\n%@\n\n"
+                 @"旧式补丁目录 %lu 个\n%@\n\n"
+                 @"MCP 目标 %lu 个\n%@",
                  neteaseGameBasePath(),
                  targetPathDisplayName(),
+                 registered ? @"✔ 已注册 global_resource_packs" : @"✘ 未注册（下次注入时写入）",
+                 (unsigned long)legacyDirs.count,
+                 legacyDirs.count ? [[legacyDirs valueForKey:@"lastPathComponent"] componentsJoinedByString:@"\n"] : @"（无）",
                  (unsigned long)mcpTargets.count,
-                 mcpTargets.count ? [mcpTargets componentsJoinedByString:@"\n"] : @"（未发现）"];
+                 mcpTargets.count ? [[mcpTargets valueForKey:@"lastPathComponent"] componentsJoinedByString:@"\n"] : @"（未发现）"];
     diag.translatesAutoresizingMaskIntoConstraints = NO;
     [diagCard addSubview:diag];
     [NSLayoutConstraint activateConstraints:@[

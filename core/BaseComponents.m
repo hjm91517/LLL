@@ -271,7 +271,7 @@ NSString* targetPath(void) {
     dispatch_once(&t, ^{
         NSFileManager *fm = NSFileManager.defaultManager;
 
-        // 1) 用户手动指定的目录优先
+        // 1) 手动指定优先
         NSString *override = [[NSUserDefaults standardUserDefaults] stringForKey:@"LLL.targetDir"];
         BOOL isDir = NO;
         if (override.length && [fm fileExistsAtPath:override isDirectory:&isDir] && isDir) {
@@ -279,13 +279,8 @@ NSString* targetPath(void) {
             return;
         }
 
-        // 2) 自动探测版本最高的纹理补丁目录（3.9 / 3.10 / 以后都吃）
-        NSString *detected = detectResourcePackRoot();
-        if (detected) { p = detected; return; }
-
-        // 3) 兜底：绝不落回某个写死的旧版本路径，自建明确命名的目录
-        p = [[neteaseGameBasePath() stringByAppendingPathComponent:@"resource_packs"]
-             stringByAppendingPathComponent:@"LLL_inject"];
+        // 2) 3.10 走自建资源包（固定目录，配合 global_resource_packs.json 注册）
+        p = [resourcePacksRootPath() stringByAppendingPathComponent:@"LLL_inject"];
         ensureDir(p);
     });
     return p;
@@ -361,39 +356,123 @@ static NSInteger LLLVersionScore(NSString *name) {
     return major * 1000000 + minor * 10000 + stage;
 }
 
-// 扫 resource_packs，挑版本号最高、且看着像纹理补丁的那个
-NSString* detectResourcePackRoot(void) {
-    NSFileManager *fm = NSFileManager.defaultManager;
-    NSString *rpDir = [neteaseGameBasePath() stringByAppendingPathComponent:@"resource_packs"];
-    NSArray<NSString*> *items = [fm contentsOfDirectoryAtPath:rpDir error:nil];
-    if (!items.count) return nil;
+// 3.10 的结构：resource_packs 下不再有 "3.8_FirstPatch_2024_res_s4_texture_..."
+// 这类版本目录（二进制里 "FirstPatch" 已经 0 命中）。
+// 现在由 global_resource_packs.json 决定加载哪些包，所以真正的适配方式是：
+//   自建一个合法资源包 → 写进 resource_packs/<名字>/ → 注册到 global_resource_packs.json
+NSString* resourcePacksRootPath(void) {
+    NSString *root = [neteaseGameBasePath() stringByAppendingPathComponent:@"resource_packs"];
+    ensureDir(root);
+    return root;
+}
 
-    NSString *best = nil;
-    NSInteger bestScore = NSIntegerMin;
+// 3.9 及以前的"覆盖式"补丁目录（v_ 开头的新式补丁 / *texture* 老式目录）
+NSArray<NSString*>* detectLegacyPatchDirs(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *root = resourcePacksRootPath();
+    NSArray<NSString*> *items = [fm contentsOfDirectoryAtPath:root error:nil];
+    NSMutableArray *out = [NSMutableArray array];
 
     for (NSString *item in items) {
         if ([item hasPrefix:@"."]) continue;
-        NSString *full = [rpDir stringByAppendingPathComponent:item];
+        NSString *full = [root stringByAppendingPathComponent:item];
         BOOL isDir = NO;
         if (![fm fileExistsAtPath:full isDirectory:&isDir] || !isDir) continue;
 
-        NSInteger s = LLLVersionScore(item);
-        if (s < 0) continue;                       // vanilla / 无版本号的目录跳过
-
-        // 纹理补丁目录优先，其次是普通 res 目录
-        if ([item rangeOfString:@"texture" options:NSCaseInsensitiveSearch].location != NSNotFound) s += 500;
-        else if ([item rangeOfString:@"res" options:NSCaseInsensitiveSearch].location != NSNotFound) s += 100;
-
-        if (s > bestScore) { bestScore = s; best = full; }
+        BOOL isPatch = [item hasPrefix:@"v_"] ||
+                       [item rangeOfString:@"texture" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                       [item rangeOfString:@"FirstPatch" options:NSCaseInsensitiveSearch].location != NSNotFound;
+        if (isPatch && ![item isEqualToString:@"LLL_inject"]) [out addObject:full];
     }
-    return best;
+    return out;
 }
 
-// 清掉探测缓存，UI 上「重新探测」用
-void lllResetPathCache(void) {
-    // 这几个函数内部是 dispatch_once，只能靠重启生效；
-    // 这里保留接口给 UI 展示用，真正的重扫走 detectResourcePackRoot()
+#pragma mark - 自建注入包
+
+// 固定 UUID：每次注入都是同一个包，不会在游戏里堆出一堆重复条目
+static NSString* const kLLLPackUUID    = @"f3a1c7d2-8b64-4e19-9c05-4d7a2e6b91f8";
+static NSString* const kLLLModuleUUID  = @"a7c4e91b-2f38-4d6a-b5c1-8e3f9a0d7c26";
+
+BOOL lllEnsureInjectPackManifest(void) {
+    NSString *dir = targetPath();
+    ensureDir(dir);
+
+    NSString *mp = [dir stringByAppendingPathComponent:@"manifest.json"];
+    if ([NSFileManager.defaultManager fileExistsAtPath:mp]) return YES;
+
+    NSDictionary *m = @{
+        @"format_version" : @2,
+        @"header" : @{
+            @"name" : @"LLL Inject",
+            @"description" : @"LLL 材质注入包",
+            @"uuid" : kLLLPackUUID,
+            @"version" : @[@1, @0, @0],
+            @"min_engine_version" : @[@1, @21, @0],
+        },
+        @"modules" : @[ @{
+            @"type" : @"resources",
+            @"uuid" : kLLLModuleUUID,
+            @"version" : @[@1, @0, @0],
+        } ],
+    };
+    NSData *d = [NSJSONSerialization dataWithJSONObject:m
+                                                options:NSJSONWritingPrettyPrinted
+                                                  error:nil];
+    return d && [d writeToFile:mp atomically:YES];
 }
+
+// global_resource_packs.json 的实际位置：3.10 的 reloadUserPacks() 里
+// 它和 packcache / premiumcache / ResPackDownloads 是兄弟，都在游戏根下
+static NSString* globalPacksJSONPath(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *base = neteaseGameBasePath();
+    NSString *a = [base stringByAppendingPathComponent:@"global_resource_packs.json"];
+    if ([fm fileExistsAtPath:a]) return a;
+    NSString *b = [resourcePacksRootPath() stringByAppendingPathComponent:@"global_resource_packs.json"];
+    if ([fm fileExistsAtPath:b]) return b;
+    return a;   // 都没有就建在根下
+}
+
+BOOL lllInjectPackRegistered(void) {
+    NSString *p = globalPacksJSONPath();
+    NSData *d = [NSData dataWithContentsOfFile:p];
+    if (!d) return NO;
+    id j = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+    if (![j isKindOfClass:NSArray.class]) return NO;
+    for (NSDictionary *e in j) {
+        if ([e isKindOfClass:NSDictionary.class] &&
+            [e[@"pack_id"] isEqualToString:kLLLPackUUID]) return YES;
+    }
+    return NO;
+}
+
+BOOL lllRegisterGlobalPack(void) {
+    NSString *p = globalPacksJSONPath();
+    NSMutableArray *arr = [NSMutableArray array];
+
+    NSData *d = [NSData dataWithContentsOfFile:p];
+    if (d) {
+        id j = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+        if ([j isKindOfClass:NSArray.class]) [arr addObjectsFromArray:j];
+    }
+
+    BOOL has = NO;
+    for (NSDictionary *e in arr) {
+        if ([e isKindOfClass:NSDictionary.class] &&
+            [e[@"pack_id"] isEqualToString:kLLLPackUUID]) { has = YES; break; }
+    }
+    if (!has) {
+        [arr addObject:@{ @"pack_id" : kLLLPackUUID, @"version" : @[@1, @0, @0] }];
+    }
+
+    NSData *out = [NSJSONSerialization dataWithJSONObject:arr
+                                                  options:NSJSONWritingPrettyPrinted
+                                                    error:nil];
+    return out && [out writeToFile:p atomically:YES];
+}
+
+// 预留：路径缓存都是 dispatch_once，只能重启生效。保留给 UI 用。
+void lllResetPathCache(void) { }
 
 
 // packcache 下所有含 *.mcp 的目录 —— 3.10 换了脚本名也能认出来

@@ -329,6 +329,13 @@ static void cleanCache(NSString *dir, NSRegularExpression *re, NSFileManager *fm
         // 只在全部成功时才叠打击特效，避免半包状态
         if (fail.count == 0 && ok.count > 0) [EffectInjector mergeInto:t];
 
+        // 3.10 关键一步：保证 LLL_inject 有合法 manifest，并注册到 global_resource_packs.json
+        // 不注册的话，文件写得再对，游戏也不会加载这个包。
+        if (ok.count > 0) {
+            lllEnsureInjectPackManifest();
+            lllRegisterGlobalPack();
+        }
+
         dispatch_async(dispatch_get_main_queue(), ^{
             if (cb) cb(ok, fail);
         });
@@ -377,7 +384,8 @@ static void cleanCache(NSString *dir, NSRegularExpression *re, NSFileManager *fm
 
 + (void)cleanTarget:(void(^)(BOOL))cb {
     dispatch_async(g_fileQueue(), ^{
-        BOOL ok = cleanDir(targetPath(), @"pack_manifest.json");
+        // 我们自己的包目录，manifest 必须留着，否则包就废了
+        BOOL ok = cleanDir(targetPath(), @"manifest.json");
         dispatch_async(dispatch_get_main_queue(), ^{ if (cb) cb(ok); });
     });
 }

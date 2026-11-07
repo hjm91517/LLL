@@ -1,6 +1,7 @@
 {
     Filter = {
         Bundles = (
+            "com.nexis.mc",
             "com.mojang.minecraftpe",
             "com.netease.mc.mobile",
             "com.netease.x19"
