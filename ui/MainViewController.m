@@ -218,7 +218,7 @@ static void lllReload(UITableView *tv) {
     _pqt = [self tv:@"pq"];  _pqt.hidden = YES; _pqt.editing = YES;
     _musict = [self tv:@"music"]; _musict.hidden = YES;
 
-    for (UITableView *t in @[_st, _qt, _pt, _pqt, _musict]) {
+    for (UITableView *t in @[_st, _qt, _pt, _pqt]) {
         [cv addSubview:t];
         [NSLayoutConstraint activateConstraints:@[
             [t.topAnchor constraintEqualToAnchor:cv.topAnchor constant:6],
@@ -226,6 +226,14 @@ static void lllReload(UITableView *tv) {
             [t.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor]
         ]];
     }
+
+    [self setupPlayerCard];
+    [cv addSubview:_musict];
+    [NSLayoutConstraint activateConstraints:@[
+        [_musict.topAnchor constraintEqualToAnchor:_playerCard.bottomAnchor constant:6],
+        [_musict.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor],
+        [_musict.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor]
+    ]];
 
     [self setupSettingsView];
 
@@ -507,6 +515,169 @@ static void lllReload(UITableView *tv) {
     });
 }
 
+- (void)setupPlayerCard {
+    _playerCard = [UIView new];
+    _playerCard.translatesAutoresizingMaskIntoConstraints = NO;
+    _playerCard.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.06];
+    _playerCard.layer.cornerRadius = 18;
+    _playerCard.layer.cornerCurve = kCACornerCurveContinuous;
+    _playerCard.layer.borderWidth = kHairline;
+    _playerCard.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.10].CGColor;
+    _playerCard.clipsToBounds = YES;
+    _playerCard.hidden = YES;
+    [self.contentContainerView addSubview:_playerCard];
+
+    _playerHeight = [_playerCard.heightAnchor constraintEqualToConstant:0];
+    [NSLayoutConstraint activateConstraints:@[
+        [_playerCard.topAnchor constraintEqualToAnchor:self.contentContainerView.topAnchor constant:6],
+        [_playerCard.leadingAnchor constraintEqualToAnchor:self.contentContainerView.leadingAnchor constant:6],
+        [_playerCard.trailingAnchor constraintEqualToAnchor:self.contentContainerView.trailingAnchor constant:-6],
+        _playerHeight
+    ]];
+
+    // 封面
+    _playerCover = [[UIImageView alloc] init];
+    _playerCover.translatesAutoresizingMaskIntoConstraints = NO;
+    _playerCover.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
+    _playerCover.layer.cornerRadius = 16;
+    _playerCover.layer.cornerCurve = kCACornerCurveContinuous;
+    _playerCover.clipsToBounds = YES;
+    _playerCover.contentMode = UIViewContentModeCenter;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg =
+            [UIImageSymbolConfiguration configurationWithPointSize:34 weight:UIImageSymbolWeightMedium];
+        _playerCover.image = [UIImage systemImageNamed:@"music.note" withConfiguration:cfg];
+        _playerCover.tintColor = [UIColor colorWithWhite:0.85 alpha:1];
+    }
+    [_playerCard addSubview:_playerCover];
+
+    _playerTitle = [UILabel new];
+    _playerTitle.translatesAutoresizingMaskIntoConstraints = NO;
+    _playerTitle.text = @"未在播放";
+    _playerTitle.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBold];
+    _playerTitle.textColor = UIColor.whiteColor;
+    _playerTitle.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    [_playerCard addSubview:_playerTitle];
+
+    _playerArtist = [UILabel new];
+    _playerArtist.translatesAutoresizingMaskIntoConstraints = NO;
+    _playerArtist.text = @"本地音乐";
+    _playerArtist.font = [UIFont systemFontOfSize:12];
+    _playerArtist.textColor = kSecondaryTextColor;
+    [_playerCard addSubview:_playerArtist];
+
+    _playerProgress = [[UISlider alloc] init];
+    _playerProgress.translatesAutoresizingMaskIntoConstraints = NO;
+    _playerProgress.minimumValue = 0; _playerProgress.maximumValue = 1; _playerProgress.value = 0;
+    _playerProgress.minimumTrackTintColor = LLLAccentColor();
+    _playerProgress.maximumTrackTintColor = [UIColor colorWithWhite:1 alpha:0.18];
+    _playerProgress.thumbTintColor = UIColor.whiteColor;
+    [_playerProgress addTarget:self action:@selector(progressSeek:) forControlEvents:UIControlEventTouchUpInside];
+    [_playerProgress addTarget:self action:@selector(progressSeek:) forControlEvents:UIControlEventTouchUpOutside];
+    [_playerCard addSubview:_playerProgress];
+
+    _playerTimeLabel = [UILabel new];
+    _playerTimeLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _playerTimeLabel.text = @"0:00 / 0:00";
+    _playerTimeLabel.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightRegular];
+    _playerTimeLabel.textColor = kSecondaryTextColor;
+    _playerTimeLabel.textAlignment = NSTextAlignmentRight;
+    [_playerCard addSubview:_playerTimeLabel];
+
+    // 传输控制
+    UIButton *prev = [self playerButton:@"backward.fill" size:20 side:44 action:@selector(prevMusic)];
+    _playerPlayBtn = [self playerButton:@"play.fill" size:24 side:58 action:@selector(togglePlayPause)];
+    _playerPlayBtn.backgroundColor = LLLAccentColor();
+    LLLGlow(_playerPlayBtn, LLLAccentColor(), 14, 0.5);
+    UIButton *next = [self playerButton:@"forward.fill" size:20 side:44 action:@selector(nextMusic)];
+    _playerModeBtn = [self playerButton:@"repeat" size:18 side:44 action:@selector(switchLoopMode)];
+
+    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[prev, _playerPlayBtn, next, _playerModeBtn]];
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.alignment = UIStackViewAlignmentCenter;
+    row.distribution = UIStackViewDistributionEqualSpacing;
+    row.spacing = 20;
+    [_playerCard addSubview:row];
+
+    _playerVolume = [[UISlider alloc] init];
+    _playerVolume.translatesAutoresizingMaskIntoConstraints = NO;
+    _playerVolume.minimumValue = 0; _playerVolume.maximumValue = 1;
+    float v = [[NSUserDefaults standardUserDefaults] floatForKey:@"LLL.volume"];
+    _playerVolume.value = (v > 0.001f) ? v : 0.8f;
+    _playerVolume.minimumTrackTintColor = LLLAccentColor();
+    _playerVolume.maximumTrackTintColor = [UIColor colorWithWhite:1 alpha:0.18];
+    _playerVolume.thumbTintColor = UIColor.whiteColor;
+    [_playerVolume addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged];
+    [_playerCard addSubview:_playerVolume];
+
+    UIImageView *volIcon = [[UIImageView alloc] init];
+    volIcon.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg =
+            [UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightMedium];
+        volIcon.image = [UIImage systemImageNamed:@"speaker.wave.2.fill" withConfiguration:cfg];
+        volIcon.tintColor = kSecondaryTextColor;
+    }
+    [_playerCard addSubview:volIcon];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_playerCover.leadingAnchor constraintEqualToAnchor:_playerCard.leadingAnchor constant:18],
+        [_playerCover.topAnchor constraintEqualToAnchor:_playerCard.topAnchor constant:18],
+        [_playerCover.widthAnchor constraintEqualToConstant:84],
+        [_playerCover.heightAnchor constraintEqualToConstant:84],
+
+        [_playerTitle.leadingAnchor constraintEqualToAnchor:_playerCover.trailingAnchor constant:14],
+        [_playerTitle.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-18],
+        [_playerTitle.topAnchor constraintEqualToAnchor:_playerCover.topAnchor constant:8],
+
+        [_playerArtist.leadingAnchor constraintEqualToAnchor:_playerTitle.leadingAnchor],
+        [_playerArtist.trailingAnchor constraintEqualToAnchor:_playerTitle.trailingAnchor],
+        [_playerArtist.topAnchor constraintEqualToAnchor:_playerTitle.bottomAnchor constant:4],
+
+        [_playerProgress.leadingAnchor constraintEqualToAnchor:_playerCard.leadingAnchor constant:18],
+        [_playerProgress.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-18],
+        [_playerProgress.topAnchor constraintEqualToAnchor:_playerCover.bottomAnchor constant:14],
+        [_playerProgress.heightAnchor constraintEqualToConstant:22],
+
+        [_playerTimeLabel.trailingAnchor constraintEqualToAnchor:_playerProgress.trailingAnchor],
+        [_playerTimeLabel.topAnchor constraintEqualToAnchor:_playerProgress.bottomAnchor constant:2],
+        [_playerTimeLabel.widthAnchor constraintEqualToConstant:120],
+
+        [row.centerXAnchor constraintEqualToAnchor:_playerCard.centerXAnchor],
+        [row.topAnchor constraintEqualToAnchor:_playerTimeLabel.bottomAnchor constant:10],
+        [row.heightAnchor constraintEqualToConstant:58],
+
+        [volIcon.leadingAnchor constraintEqualToAnchor:_playerCard.leadingAnchor constant:20],
+        [volIcon.centerYAnchor constraintEqualToAnchor:_playerVolume.centerYAnchor],
+        [volIcon.widthAnchor constraintEqualToConstant:18],
+        [volIcon.heightAnchor constraintEqualToConstant:18],
+
+        [_playerVolume.leadingAnchor constraintEqualToAnchor:volIcon.trailingAnchor constant:8],
+        [_playerVolume.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-18],
+        [_playerVolume.topAnchor constraintEqualToAnchor:row.bottomAnchor constant:10],
+        [_playerVolume.heightAnchor constraintEqualToConstant:24],
+    ]];
+}
+
+- (UIButton *)playerButton:(NSString *)icon size:(CGFloat)size side:(CGFloat)side action:(SEL)action {
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+    b.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg =
+            [UIImageSymbolConfiguration configurationWithPointSize:size weight:UIImageSymbolWeightSemibold];
+        [b setImage:[UIImage systemImageNamed:icon withConfiguration:cfg] forState:UIControlStateNormal];
+    }
+    b.tintColor = UIColor.whiteColor;
+    b.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
+    b.layer.cornerRadius = side / 2;
+    b.layer.cornerCurve = kCACornerCurveContinuous;
+    [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    [b.widthAnchor constraintEqualToConstant:side].active = YES;
+    [b.heightAnchor constraintEqualToConstant:side].active = YES;
+    return b;
+}
+
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"CustomBackgroundEnabled"]) {
@@ -584,6 +755,12 @@ static void lllReload(UITableView *tv) {
     }
     if (_volumeSlider) _volumeSlider.minimumTrackTintColor = accent;
     if (_progressSlider) _progressSlider.minimumTrackTintColor = accent;
+    if (_playerProgress) _playerProgress.minimumTrackTintColor = accent;
+    if (_playerVolume) _playerVolume.minimumTrackTintColor = accent;
+    if (_playerPlayBtn) {
+        _playerPlayBtn.backgroundColor = accent;
+        LLLGlow(_playerPlayBtn, accent, 14, 0.5);
+    }
     if (_headerSub) {
         _headerSub.textColor = [accent colorWithAlphaComponent:0.85];
     }
@@ -762,7 +939,7 @@ static void lllReload(UITableView *tv) {
     [self setHeader:@"音乐盒" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
     [self reloadMusicData];
     [self startProgressTimer];
-    [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:self.musicControlBar];
+    [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
 }
 
 - (void)showSettingsTab {
@@ -785,6 +962,9 @@ static void lllReload(UITableView *tv) {
     [self setTab:self.tab4 active:NO];
     [self setTab:self.tab6 active:NO];
     [self setTab:self.tab7 active:YES];
+
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
 
     [self setHeader:@"设置" sub:[NSString stringWithFormat:@"LLL %@", kPluginVersion]];
 
@@ -950,6 +1130,7 @@ static void lllReload(UITableView *tv) {
     self.bgPlayer.volume = v * 0.55f;
 
     if (_volumeSlider && fabsf(_volumeSlider.value - v) > 0.001f) _volumeSlider.value = v;
+    if (_playerVolume && fabsf(_playerVolume.value - v) > 0.001f) _playerVolume.value = v;
 }
 
 - (void)volumeChanged:(UISlider *)sender {
@@ -975,12 +1156,25 @@ static void lllReload(UITableView *tv) {
 }
 
 - (void)updateProgressUI {
-    if (!_progressSlider || _progressSlider.isTracking) return;
     AVAudioPlayer *ap = self.audioPlayer;
+    double cur = 0, total = 0;
     if (ap && ap.duration > 0.01) {
-        _progressSlider.value = (float)(ap.currentTime / ap.duration);
-        return;
+        cur = ap.currentTime; total = ap.duration;
+    } else if (self.videoMusicPlayer.currentItem) {
+        total = CMTimeGetSeconds(self.videoMusicPlayer.currentItem.duration);
+        cur = CMTimeGetSeconds(self.videoMusicPlayer.currentTime);
     }
+    if (total > 0.01 && !isnan(total)) {
+        if (_progressSlider && !_progressSlider.isTracking)
+            _progressSlider.value = (float)(cur / total);
+        if (_playerProgress && !_playerProgress.isTracking)
+            _playerProgress.value = (float)(cur / total);
+        if (_playerTimeLabel)
+            _playerTimeLabel.text = [NSString stringWithFormat:@"%d:%02d / %d:%02d",
+                                     (int)(cur / 60), (int)fmod(cur, 60),
+                                     (int)(total / 60), (int)fmod(total, 60)];
+    }
+    if (_progressSlider || _playerProgress) return;
     AVPlayer *vp = self.videoMusicPlayer;
     if (vp && vp.currentItem) {
         double total = CMTimeGetSeconds(vp.currentItem.duration);

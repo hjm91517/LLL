@@ -122,6 +122,33 @@ static void (^gLLLCloseCloudCard)(void) = nil;
             self.nowPlayingLabel.text = self.isPlaying ? @"播放中" : @"未在播放";
         }
     }
+    if (self.playerTitle) {
+        if (self.currentMusicIndex >= 0 &&
+            self.currentMusicIndex < (NSInteger)self.musicNames.count) {
+            self.playerTitle.text = self.musicNames[(NSUInteger)self.currentMusicIndex];
+        } else {
+            self.playerTitle.text = self.isPlaying ? @"播放中" : @"未在播放";
+        }
+    }
+    if (self.playerPlayBtn) {
+        if (@available(iOS 13.0, *)) {
+            UIImageSymbolConfiguration *cfg =
+                [UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightSemibold];
+            [self.playerPlayBtn setImage:[UIImage systemImageNamed:(self.isPlaying ? @"pause.fill" : @"play.fill")
+                                                     withConfiguration:cfg]
+                                forState:UIControlStateNormal];
+        }
+    }
+    if (self.playerModeBtn) {
+        if (@available(iOS 13.0, *)) {
+            NSString *ic = self.loopModeSingle ? @"repeat.1" : (self.shuffleMode ? @"shuffle" : @"repeat");
+            UIImageSymbolConfiguration *cfg =
+                [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
+            [self.playerModeBtn setImage:[UIImage systemImageNamed:ic withConfiguration:cfg]
+                                forState:UIControlStateNormal];
+        }
+    }
+
     if (self.isPlaying) {
         [self startProgressTimer];
     } else {

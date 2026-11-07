@@ -569,6 +569,39 @@ NSArray<NSString*>* hotPatchPackDirs(void) {
     return out;
 }
 
+
+// 3.10 的补丁包带 signatures.json，改动任意文件都会哈希不匹配 → 整包被判无效。
+// 删掉签名文件，游戏会当成"本地未签名包"处理，通常仍然加载。
+BOOL lllStripSignatures(NSString *dir) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    BOOL removed = NO;
+    for (NSString *name in @[@"signatures.json", @"signature.json"]) {
+        NSString *p = [dir stringByAppendingPathComponent:name];
+        if ([fm fileExistsAtPath:p]) {
+            if ([fm removeItemAtPath:p error:nil]) {
+                lllLog(@"   签名文件已移除: %@/%@", dir.lastPathComponent, name);
+                removed = YES;
+            }
+        }
+    }
+    return removed;
+}
+
+// 打印目标包根目录下的文件（不看子目录），一眼能看出有没有 manifest / signatures
+void lllLogPackRootFiles(NSString *dir) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSArray *items = [[fm contentsOfDirectoryAtPath:dir error:nil]
+                      sortedArrayUsingSelector:@selector(compare:)];
+    NSMutableArray *files = [NSMutableArray array];
+    for (NSString *it in items) {
+        BOOL d = NO;
+        [fm fileExistsAtPath:[dir stringByAppendingPathComponent:it] isDirectory:&d];
+        if (!d) [files addObject:it];
+    }
+    lllLog(@"   [%@] 根文件: %@", dir.lastPathComponent,
+           files.count ? [files componentsJoinedByString:@", "] : @"(无)");
+}
+
 #pragma mark - 主题色
 
 static UIColor *LLLThemeDefaultPreset(LLLThemeIndex i) {

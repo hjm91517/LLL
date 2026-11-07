@@ -40,6 +40,8 @@ typedef NS_ENUM(NSInteger, BGSwitchMode) {
 - (void)startProgressTimer;
 - (void)stopProgressTimer;
 - (void)updateProgressUI;
+- (void)setupPlayerCard;
+- (UIButton *)playerButton:(NSString *)icon size:(CGFloat)size side:(CGFloat)side action:(SEL)action;
 - (void)saveQ;
 - (void)loadQ;
 - (void)reloadSrcData;

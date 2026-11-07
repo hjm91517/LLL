@@ -31,6 +31,17 @@
 @property (nonatomic, strong) UILabel *nowPlayingLabel;
 @property (nonatomic, strong) NSTimer *progressTimer;
 
+@property (nonatomic, strong) UIView *playerCard;
+@property (nonatomic, strong) NSLayoutConstraint *playerHeight;
+@property (nonatomic, strong) UILabel *playerTitle;
+@property (nonatomic, strong) UILabel *playerArtist;
+@property (nonatomic, strong) UILabel *playerTimeLabel;
+@property (nonatomic, strong) UIImageView *playerCover;
+@property (nonatomic, strong) UIButton *playerPlayBtn;
+@property (nonatomic, strong) UIButton *playerModeBtn;
+@property (nonatomic, strong) UISlider *playerProgress;
+@property (nonatomic, strong) UISlider *playerVolume;
+
 @property (nonatomic, assign) BOOL bgVideoWasPlaying;
 
 - (void)reloadSrcData;

@@ -357,6 +357,8 @@ static NSUInteger lllCountFiles(NSString *dir) {
                 if (r) any = YES;
                 lllLog(@"   -> %@  %@  (%lu files)", t, r ? @"OK" : @"FAIL",
                        (unsigned long)lllCountFiles(t));
+                lllLogPackRootFiles(t);
+                lllStripSignatures(t);
             }
 
             if (any && mirrors.count) {
