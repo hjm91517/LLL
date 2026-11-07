@@ -5,6 +5,8 @@
 #import "LLLAnim.h"
 #import "LLLUiKit.h"
 #import "LLLCloudMusic.h"
+#import "EffectInjector.h"
+#import <objc/runtime.h>
 #import <objc/runtime.h>
 #import <AVFoundation/AVFoundation.h>
 
@@ -247,7 +249,19 @@ static void (^gLLLCloseCloudCard)(void) = nil;
 
 - (void)openCloudMusic {
     LLLCloudMusic *cm = [LLLCloudMusic shared];
-    if (cm.loggedIn) { [self showLikedSongs]; return; }
+    if (cm.loggedIn) {
+        LLLShowSheet(@"网易云音乐", cm.nickname.length ? cm.nickname : @"已登录",
+                     @[@"我喜欢的音乐", @"搜索音乐", @"退出登录"], YES,
+                     ^(NSInteger idx) {
+            if (idx == 0) [self showLikedSongs];
+            else if (idx == 1) [self searchCloudMusic];
+            else {
+                [[LLLCloudMusic shared] logout];
+                ShowToast(@"已退出登录", 1.5, YES, NO);
+            }
+        });
+        return;
+    }
 
     __block UIImageView *qrView = nil;
     __block UILabel *hint = nil;
@@ -302,6 +316,117 @@ static void (^gLLLCloseCloudCard)(void) = nil;
             if (ok) [self showLikedSongs];
         });
     }];
+}
+
+static UITextField *gSearchField = nil;
+static void (^gSearchClose)(void) = nil;
+
+- (void)searchCloudMusic {
+    if (![LLLCloudMusic shared].loggedIn) {
+        ShowToast(@"先登录网易云", 1.5, YES, YES);
+        [self openCloudMusic];
+        return;
+    }
+
+    LLLShowCustomCard(320, 200, ^(UIView *card, void (^close)(void)) {
+        gSearchClose = [close copy];
+        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
+        card.frame = CGRectMake(0, 0, w, 156);
+
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 16, w - 32, 22)];
+        t.text = @"搜索网易云音乐";
+        t.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        t.textColor = UIColor.whiteColor;
+        t.textAlignment = NSTextAlignmentCenter;
+        [card addSubview:t];
+
+        UITextField *f = [[UITextField alloc] initWithFrame:CGRectMake(16, 50, w - 32, 38)];
+        f.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
+        f.layer.cornerRadius = 10;
+        f.textColor = UIColor.whiteColor;
+        f.tintColor = LLLAccentColor();
+        f.placeholder = @"歌名 / 歌手";
+        f.font = [UIFont systemFontOfSize:14];
+        f.autocorrectionType = UITextAutocorrectionTypeNo;
+        f.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        f.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 38)];
+        f.leftViewMode = UITextFieldViewModeAlways;
+        [card addSubview:f];
+        gSearchField = f;
+
+        UIButton *go = [UIButton buttonWithType:UIButtonTypeSystem];
+        go.frame = CGRectMake(16, 98, w - 32, 42);
+        go.backgroundColor = LLLAccentColor();
+        go.layer.cornerRadius = 12;
+        [go setTitle:@"搜索" forState:UIControlStateNormal];
+        [go setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+        go.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        [go addTarget:self action:@selector(doCloudSearch) forControlEvents:UIControlEventTouchUpInside];
+        [card addSubview:go];
+    });
+}
+
+- (void)doCloudSearch {
+    NSString *kw = [gSearchField.text stringByTrimmingCharactersInSet:
+                    [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (!kw.length) { ShowToast(@"先输入关键词", 1.5, YES, YES); return; }
+
+    if (gSearchClose) { gSearchClose(); gSearchClose = nil; }
+    gSearchField = nil;
+
+    ShowToast(@"搜索中…", 1.2, YES, NO);
+    __weak typeof(self) w = self;
+    [[LLLCloudMusic shared] searchSongs:kw done:^(NSArray<NSDictionary *> *songs, NSString *err) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (!s) return;
+            if (!songs.count) { ShowToast(err.length ? err : @"没搜到", 2, YES, YES); return; }
+
+            NSMutableArray *titles = [NSMutableArray array];
+            for (NSDictionary *sg in songs) {
+                [titles addObject:[NSString stringWithFormat:@"%@ - %@", sg[@"name"], sg[@"artist"]]];
+            }
+            LLLShowList([NSString stringWithFormat:@"“%@” 的结果", kw],
+                        [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count],
+                        titles, ^(NSInteger idx) {
+                if (idx >= 0 && idx < (NSInteger)songs.count) [s playCloudSong:songs[(NSUInteger)idx]];
+            });
+        });
+    }];
+}
+
+- (void)packLongPress:(UILongPressGestureRecognizer *)g {
+    if (g.state != UIGestureRecognizerStateBegan) return;
+
+    NSString *path = objc_getAssociatedObject(g.view, "src");
+    NSString *name = objc_getAssociatedObject(g.view, "nm");
+    if (!path || !name) return;
+
+    __weak typeof(self) w = self;
+    LLLShowSheet(name, @"要不要连平砍粒子一起带上？",
+                 @[@"只注材质", @"材质 + 平砍粒子"], NO, ^(NSInteger idx) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+
+        if (idx == 1) {
+            [EffectInjector applyConfig:[EffectInjector defaultConfig]
+                             completion:^(BOOL ok, NSString *err) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    ShowToast(ok ? @"平砍粒子已就绪" : @"粒子生成失败", 1.8, YES, !ok);
+                });
+            }];
+        }
+
+        if (![s.qp containsObject:path]) {
+            [s.qn addObject:name];
+            [s.qp addObject:path];
+            [s.qt reloadData];
+            [s upEmpty:s.qt];
+            [s saveQ];
+        }
+        ShowToast([NSString stringWithFormat:@"已加入队列: %@", name], 1.5, YES, NO);
+        PlayHaptic(YES);
+    });
 }
 
 - (void)showLikedSongs {

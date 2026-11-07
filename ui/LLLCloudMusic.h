@@ -24,6 +24,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)loadLikedSongs:(void (^)(NSArray<NSDictionary *> * _Nullable songs, NSString * _Nullable err))done;
 
 /// 拿播放直链（返回后可交给 AVPlayer）
+- (void)searchSongs:(NSString *)keyword
+               done:(void (^)(NSArray<NSDictionary *> * _Nullable songs, NSString * _Nullable err))done;
+
 - (void)resolvePlayURL:(NSNumber *)songID done:(void (^)(NSURL * _Nullable url, NSString * _Nullable err))done;
 
 - (void)logout;

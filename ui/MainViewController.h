@@ -39,6 +39,7 @@
 @property (nonatomic, strong) UIImageView *playerCover;
 @property (nonatomic, strong) UIButton *playerPlayBtn;
 @property (nonatomic, strong) UIButton *playerModeBtn;
+@property (nonatomic, strong) UIButton *playerCloudBtn;
 @property (nonatomic, strong) UISlider *playerProgress;
 @property (nonatomic, strong) UISlider *playerVolume;
 

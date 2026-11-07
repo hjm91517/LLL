@@ -698,6 +698,11 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     UIButton *next = [self playerButton:@"forward.fill" size:20 side:44 action:@selector(nextMusic)];
     _playerModeBtn = [self playerButton:@"repeat" size:18 side:44 action:@selector(switchLoopMode)];
 
+    // 网易云入口（登录 / 我喜欢的 / 搜索）
+    _playerCloudBtn = [self playerButton:@"cloud.fill" size:15 side:34 action:@selector(openCloudMusic)];
+    _playerCloudBtn.backgroundColor = [LLLAccentColor() colorWithAlphaComponent:0.28];
+    [_playerCard addSubview:_playerCloudBtn];
+
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[prev, _playerPlayBtn, next, _playerModeBtn]];
     row.translatesAutoresizingMaskIntoConstraints = NO;
     row.axis = UILayoutConstraintAxisHorizontal;
@@ -748,7 +753,10 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         [_playerCover.heightAnchor constraintEqualToConstant:84],
 
         [_playerTitle.leadingAnchor constraintEqualToAnchor:_playerCover.trailingAnchor constant:14],
-        [_playerTitle.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-18],
+        [_playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:_playerCloudBtn.leadingAnchor constant:-10],
+
+        [_playerCloudBtn.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-16],
+        [_playerCloudBtn.topAnchor constraintEqualToAnchor:_playerCard.topAnchor constant:18],
         [_playerTitle.topAnchor constraintEqualToAnchor:_playerCover.topAnchor constant:8],
 
         [_playerArtist.leadingAnchor constraintEqualToAnchor:_playerTitle.leadingAnchor],
@@ -887,6 +895,9 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     if (_progressSlider) _progressSlider.minimumTrackTintColor = accent;
     if (_playerProgress) _playerProgress.minimumTrackTintColor = accent;
     if (_playerVolume) _playerVolume.minimumTrackTintColor = accent;
+    if (_playerCloudBtn) {
+        _playerCloudBtn.backgroundColor = [accent colorWithAlphaComponent:0.28];
+    }
     if (_playerPlayBtn) {
         _playerPlayBtn.backgroundColor = accent;
         LLLGlow(_playerPlayBtn, accent, 14, 0.5);
@@ -1405,6 +1416,17 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         PackCell *c = [tv dequeueReusableCellWithIdentifier:@"s" forIndexPath:ip];
         c.title.text = self.sn[ip.row]; c.icon.image = cachedIcon(self.sp[ip.row], self.shi[ip.row].boolValue);
         objc_setAssociatedObject(c.btn, "p", self.sp[ip.row], OBJC_ASSOCIATION_RETAIN); objc_setAssociatedObject(c.btn, "n", self.sn[ip.row], OBJC_ASSOCIATION_RETAIN);
+
+        // 长按整行 → 选择是否附带平砍粒子
+        objc_setAssociatedObject(c, "src", self.sp[ip.row], OBJC_ASSOCIATION_RETAIN);
+        objc_setAssociatedObject(c, "nm", self.sn[ip.row], OBJC_ASSOCIATION_RETAIN);
+        for (UIGestureRecognizer *g in [c.gestureRecognizers copy]) {
+            if ([g isKindOfClass:[UILongPressGestureRecognizer class]]) [c removeGestureRecognizer:g];
+        }
+        UILongPressGestureRecognizer *lp =
+            [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(packLongPress:)];
+        lp.minimumPressDuration = 0.5;
+        [c addGestureRecognizer:lp];
         [c.btn removeTarget:self action:NULL forControlEvents:UIControlEventTouchUpInside]; [c.btn addTarget:self action:@selector(addToQueue:) forControlEvents:UIControlEventTouchUpInside];
         return c;
     }

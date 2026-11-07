@@ -303,6 +303,45 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     [self fetchAccountThen:^(BOOL ok, NSString *m) { afterUid(); }];
 }
 
+#pragma mark - 搜索
+
+- (void)searchSongs:(NSString *)keyword done:(void (^)(NSArray<NSDictionary *> *, NSString *))done {
+    if (!keyword.length) { if (done) done(nil, @"关键词是空的"); return; }
+
+    __weak typeof(self) w = self;
+    [self getJSON:@"/api/search/get"
+           params:@{ @"s" : keyword, @"type" : @"1", @"limit" : @"30", @"offset" : @"0" }
+             done:^(id json, NSError *err) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+
+        NSArray *songs = nil;
+        if ([json isKindOfClass:NSDictionary.class]) {
+            NSDictionary *r = json[@"result"];
+            if ([r isKindOfClass:NSDictionary.class]) songs = r[@"songs"];
+        }
+        if (![songs isKindOfClass:NSArray.class]) {
+            if (done) done(nil, @"搜索没返回结果");
+            return;
+        }
+
+        NSMutableArray *out = [NSMutableArray array];
+        for (NSDictionary *sg in songs) {
+            if (![sg isKindOfClass:NSDictionary.class]) continue;
+            NSString *artist = @"";
+            NSArray *ar = sg[@"artists"];
+            if ([ar isKindOfClass:NSArray.class] && ar.count) {
+                NSDictionary *a0 = ar.firstObject;
+                if ([a0 isKindOfClass:NSDictionary.class]) artist = a0[@"name"] ?: @"";
+            }
+            [out addObject:@{ @"id" : sg[@"id"] ?: @0,
+                              @"name" : sg[@"name"] ?: @"未知",
+                              @"artist" : artist }];
+        }
+        if (done) done(out, out.count ? nil : @"没搜到歌");
+    }];
+}
+
 #pragma mark - 播放直链
 
 - (void)resolvePlayURL:(NSNumber *)songID done:(void (^)(NSURL *, NSString *))done {

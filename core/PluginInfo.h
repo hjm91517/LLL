@@ -1,4 +1,4 @@
-#define kPluginVersion @"27.4.0"
+#define kPluginVersion @"27.5.0"
 
 #define kPluginFeatures @[ \
     @"• 材质包注入与管理（增量注入 / 秒级跳过未变文件）", \
