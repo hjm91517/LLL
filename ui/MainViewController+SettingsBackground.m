@@ -129,16 +129,44 @@
     [self.chooseBgBtn setTitle:@"添加背景 (图片/视频)" forState:UIControlStateNormal];
     self.chooseBgBtn.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
     self.chooseBgBtn.tintColor = UIColor.whiteColor;
-    self.chooseBgBtn.backgroundColor = [UIColor colorWithWhite:0.25 alpha:0.7];
-    self.chooseBgBtn.layer.cornerRadius = 10;
+    self.chooseBgBtn.backgroundColor = kAccentBlue;
+    self.chooseBgBtn.layer.cornerRadius = 12;
+    self.chooseBgBtn.layer.cornerCurve = kCACornerCurveContinuous;
+    LLLGlow(self.chooseBgBtn, kAccentBlue, 12, 0.35);
     [self.chooseBgBtn addTarget:self action:@selector(chooseBackgroundImage) forControlEvents:UIControlEventTouchUpInside];
     self.chooseBgBtn.translatesAutoresizingMaskIntoConstraints = NO;
     [self.chooseBgBtn.heightAnchor constraintEqualToConstant:44].active = YES;
     [stack addArrangedSubview:self.chooseBgBtn];
 
+    // 路径诊断：把探测结果直接摊在设置里，版本对不对一眼看穿
+    UIView *diagCard = [self cardRow];
+    UILabel *diag = [[UILabel alloc] init];
+    diag.numberOfLines = 0;
+    diag.font = [UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightRegular];
+    diag.textColor = [UIColor colorWithWhite:0.66 alpha:1.0];
+    NSArray<NSString*> *mcpTargets = findAllMCPTargets();
+    diag.text = [NSString stringWithFormat:
+                 @"根目录\n%@\n\n注入目标\n%@\n\nMCP 目标 %lu 个\n%@",
+                 neteaseGameBasePath(),
+                 targetPathDisplayName(),
+                 (unsigned long)mcpTargets.count,
+                 mcpTargets.count ? [mcpTargets componentsJoinedByString:@"\n"] : @"（未发现）"];
+    diag.translatesAutoresizingMaskIntoConstraints = NO;
+    [diagCard addSubview:diag];
+    [NSLayoutConstraint activateConstraints:@[
+        [diag.topAnchor constraintEqualToAnchor:diagCard.topAnchor constant:12],
+        [diag.leadingAnchor constraintEqualToAnchor:diagCard.leadingAnchor constant:14],
+        [diag.trailingAnchor constraintEqualToAnchor:diagCard.trailingAnchor constant:-14],
+        [diag.bottomAnchor constraintEqualToAnchor:diagCard.bottomAnchor constant:-12],
+    ]];
+    [stack addArrangedSubview:diagCard];
+
     UIView *aboutCard = [[UIView alloc] init];
-    aboutCard.backgroundColor = [UIColor colorWithWhite:0.12 alpha:0.8];
-    aboutCard.layer.cornerRadius = 14;
+    aboutCard.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.05];
+    aboutCard.layer.cornerRadius = 12;
+    aboutCard.layer.cornerCurve = kCACornerCurveContinuous;
+    aboutCard.layer.borderWidth = kHairline;
+    aboutCard.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.08].CGColor;
     aboutCard.translatesAutoresizingMaskIntoConstraints = NO;
 
     UILabel *versionLabel = [[UILabel alloc] init];

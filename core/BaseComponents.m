@@ -1,4 +1,5 @@
 #import "BaseComponents.h"
+#import "LLLAnim.h"
 #import <ImageIO/ImageIO.h>
 #import <objc/runtime.h>
 #import <AVFoundation/AVFoundation.h>
@@ -16,7 +17,10 @@
 
         _icon = [[UIImageView alloc] init];
         _icon.contentMode = UIViewContentModeScaleAspectFill;
-        _icon.layer.cornerRadius = kButtonCornerRadius;
+        _icon.layer.cornerRadius = 14;
+        _icon.layer.cornerCurve = kCACornerCurveContinuous;
+        _icon.layer.borderWidth = kHairline;
+        _icon.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.08].CGColor;
         _icon.clipsToBounds = YES;
         _icon.translatesAutoresizingMaskIntoConstraints = NO;
         [_card addSubview:_icon];
@@ -35,9 +39,16 @@
         [_card addSubview:_sub];
 
         _btn = [UIButton buttonWithType:UIButtonTypeSystem];
-        if (@available(iOS 13.0, *))
-            [_btn setImage:[UIImage systemImageNamed:@"plus.circle.fill"] forState:UIControlStateNormal];
+        if (@available(iOS 13.0, *)) {
+            UIImageSymbolConfiguration *cfg =
+                [UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightSemibold];
+            [_btn setImage:[UIImage systemImageNamed:@"plus.circle.fill" withConfiguration:cfg]
+                  forState:UIControlStateNormal];
+        }
         _btn.tintColor = kAccentGreen;
+        _btn.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.07];
+        _btn.layer.cornerRadius = 17;
+        _btn.layer.cornerCurve = kCACornerCurveContinuous;
         _btn.translatesAutoresizingMaskIntoConstraints = NO;
         [_card addSubview:_btn];
 
@@ -68,6 +79,10 @@
     }
     return self;
 }
+- (void)setHighlighted:(BOOL)highlighted animated:(BOOL)animated {
+    [super setHighlighted:highlighted animated:animated];
+    if (highlighted) LLLPressDown(_card); else LLLPressUp(_card);
+}
 @end
 
 @implementation PluginCell
@@ -88,9 +103,16 @@
         [_card addSubview:_title];
 
         _btn = [UIButton buttonWithType:UIButtonTypeSystem];
-        if (@available(iOS 13.0, *))
-            [_btn setImage:[UIImage systemImageNamed:@"plus.circle.fill"] forState:UIControlStateNormal];
+        if (@available(iOS 13.0, *)) {
+            UIImageSymbolConfiguration *cfg =
+                [UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightSemibold];
+            [_btn setImage:[UIImage systemImageNamed:@"plus.circle.fill" withConfiguration:cfg]
+                  forState:UIControlStateNormal];
+        }
         _btn.tintColor = kAccentGreen;
+        _btn.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.07];
+        _btn.layer.cornerRadius = 17;
+        _btn.layer.cornerCurve = kCACornerCurveContinuous;
         _btn.translatesAutoresizingMaskIntoConstraints = NO;
         [_card addSubview:_btn];
 
@@ -111,6 +133,10 @@
         ]];
     }
     return self;
+}
+- (void)setHighlighted:(BOOL)highlighted animated:(BOOL)animated {
+    [super setHighlighted:highlighted animated:animated];
+    if (highlighted) LLLPressDown(_card); else LLLPressUp(_card);
 }
 @end
 
@@ -166,6 +192,10 @@
         ]];
     }
     return self;
+}
+- (void)setHighlighted:(BOOL)highlighted animated:(BOOL)animated {
+    [super setHighlighted:highlighted animated:animated];
+    if (highlighted) LLLPressDown(_card); else LLLPressUp(_card);
 }
 @end
 
@@ -239,78 +269,191 @@ NSString* targetPath(void) {
     static NSString *p;
     static dispatch_once_t t;
     dispatch_once(&t, ^{
-        NSString *resourcePacksDir = [neteaseGameBasePath() stringByAppendingPathComponent:@"resource_packs"];
-        NSFileManager *fm = [NSFileManager defaultManager];
-        NSArray *contents = [fm contentsOfDirectoryAtPath:resourcePacksDir error:nil];
-        NSInteger maxNum = -1;
-        NSString *bestMatch = nil;
-        NSError *err = nil;
-        NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:
-                                      @"^FirstPatch_2024_res_s(\\d+)_texture"
-                                      options:NSRegularExpressionCaseInsensitive error:&err];
-        for (NSString *item in contents) {
-            NSTextCheckingResult *match = [regex firstMatchInString:item options:0 range:NSMakeRange(0, item.length)];
-            if (match) {
-                NSRange numRange = [match rangeAtIndex:1];
-                NSString *numStr = [item substringWithRange:numRange];
-                NSInteger num = [numStr integerValue];
-                if (num > maxNum) {
-                    maxNum = num;
-                    NSString *full = [resourcePacksDir stringByAppendingPathComponent:item];
-                    BOOL isDir;
-                    if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) {
-                        bestMatch = full;
-                    }
-                }
-            }
+        NSFileManager *fm = NSFileManager.defaultManager;
+
+        // 1) 用户手动指定的目录优先
+        NSString *override = [[NSUserDefaults standardUserDefaults] stringForKey:@"LLL.targetDir"];
+        BOOL isDir = NO;
+        if (override.length && [fm fileExistsAtPath:override isDirectory:&isDir] && isDir) {
+            p = override;
+            return;
         }
-        if (bestMatch) {
-            p = bestMatch;
-        } else {
-            p = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/games/com.netease/resource_packs/3.8_FirstPatch_2024_res_s4_texture_97b92e63-9521-5c9a-8308-af635fa6fdc1_0_0_2"];
-        }
+
+        // 2) 自动探测版本最高的纹理补丁目录（3.9 / 3.10 / 以后都吃）
+        NSString *detected = detectResourcePackRoot();
+        if (detected) { p = detected; return; }
+
+        // 3) 兜底：绝不落回某个写死的旧版本路径，自建明确命名的目录
+        p = [[neteaseGameBasePath() stringByAppendingPathComponent:@"resource_packs"]
+             stringByAppendingPathComponent:@"LLL_inject"];
         ensureDir(p);
     });
     return p;
 }
 
-NSString* packcacheBasePath(void) {
-    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/games/com.netease/packcache"];
+// 当前注入目标的名字，UI 上展示用
+NSString* targetPathDisplayName(void) {
+    return targetPath().lastPathComponent;
+}
+
+// 游戏根目录可能落在几个不同位置（不同版本 / 越狱容器重定向 / 沙盒迁移）
+NSArray<NSString*>* candidateGameBases(void) {
+    NSString *home = NSHomeDirectory();
+    return @[
+        [home stringByAppendingPathComponent:@"Library/games/com.netease"],
+        [home stringByAppendingPathComponent:@"Library/Application Support/games/com.netease"],
+        [home stringByAppendingPathComponent:@"Documents/games/com.netease"],
+    ];
 }
 
 NSString* neteaseGameBasePath(void) {
-    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/games/com.netease"];
+    static NSString *p;
+    static dispatch_once_t t;
+    dispatch_once(&t, ^{
+        NSFileManager *fm = NSFileManager.defaultManager;
+        for (NSString *c in candidateGameBases()) {
+            BOOL isDir = NO;
+            if (![fm fileExistsAtPath:c isDirectory:&isDir] || !isDir) continue;
+            // 必须能看到 resource_packs 或 packcache 才认定是游戏根
+            if ([fm fileExistsAtPath:[c stringByAppendingPathComponent:@"resource_packs"]] ||
+                [fm fileExistsAtPath:[c stringByAppendingPathComponent:@"packcache"]]) {
+                p = c;
+                return;
+            }
+        }
+        p = candidateGameBases().firstObject;
+    });
+    return p;
 }
 
-// 一次遍历 packcache，找含指定脚本文件的子目录（布吉岛 / Misaki 共用）
-static NSArray<NSString*>* scanPackcacheFor(NSString *markerFile) {
+NSString* packcacheBasePath(void) {
+    return [neteaseGameBasePath() stringByAppendingPathComponent:@"packcache"];
+}
+
+// 版本目录打分："3.10_FirstPatch_2024_res_s5_texture_xxx" -> 3105000
+// 3.9 = 3090000 < 3.10 = 3100000，天然按版本高低排
+static NSInteger LLLVersionScore(NSString *name) {
+    static NSRegularExpression *re;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        re = [NSRegularExpression regularExpressionWithPattern:@"(\\d+)\\.(\\d+)" options:0 error:nil];
+    });
+    if (name.length == 0) return -1;
+
+    NSTextCheckingResult *m = [re firstMatchInString:name options:0 range:NSMakeRange(0, name.length)];
+    if (!m) return -1;
+
+    NSInteger major = [[name substringWithRange:[m rangeAtIndex:1]] integerValue];
+    NSInteger minor = [[name substringWithRange:[m rangeAtIndex:2]] integerValue];
+
+    NSInteger stage = 0;
+    NSRange sr = [name rangeOfString:@"res_s" options:NSCaseInsensitiveSearch];
+    if (sr.location != NSNotFound) {
+        NSString *tail = [name substringFromIndex:NSMaxRange(sr)];
+        NSMutableString *digits = [NSMutableString string];
+        for (NSUInteger i = 0; i < tail.length; i++) {
+            unichar c = [tail characterAtIndex:i];
+            if (c >= '0' && c <= '9') [digits appendFormat:@"%C", c];
+            else break;
+        }
+        stage = [digits integerValue];
+    }
+    return major * 1000000 + minor * 10000 + stage;
+}
+
+// 扫 resource_packs，挑版本号最高、且看着像纹理补丁的那个
+NSString* detectResourcePackRoot(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *rpDir = [neteaseGameBasePath() stringByAppendingPathComponent:@"resource_packs"];
+    NSArray<NSString*> *items = [fm contentsOfDirectoryAtPath:rpDir error:nil];
+    if (!items.count) return nil;
+
+    NSString *best = nil;
+    NSInteger bestScore = NSIntegerMin;
+
+    for (NSString *item in items) {
+        if ([item hasPrefix:@"."]) continue;
+        NSString *full = [rpDir stringByAppendingPathComponent:item];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:full isDirectory:&isDir] || !isDir) continue;
+
+        NSInteger s = LLLVersionScore(item);
+        if (s < 0) continue;                       // vanilla / 无版本号的目录跳过
+
+        // 纹理补丁目录优先，其次是普通 res 目录
+        if ([item rangeOfString:@"texture" options:NSCaseInsensitiveSearch].location != NSNotFound) s += 500;
+        else if ([item rangeOfString:@"res" options:NSCaseInsensitiveSearch].location != NSNotFound) s += 100;
+
+        if (s > bestScore) { bestScore = s; best = full; }
+    }
+    return best;
+}
+
+// 清掉探测缓存，UI 上「重新探测」用
+void lllResetPathCache(void) {
+    // 这几个函数内部是 dispatch_once，只能靠重启生效；
+    // 这里保留接口给 UI 展示用，真正的重扫走 detectResourcePackRoot()
+}
+
+
+// packcache 下所有含 *.mcp 的目录 —— 3.10 换了脚本名也能认出来
+NSArray<NSString*>* findAllMCPTargets(void) {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *base = packcacheBasePath();
-    NSArray<NSString *> *dirs = [fm contentsOfDirectoryAtPath:base error:nil];
+    NSArray<NSString*> *dirs = [fm contentsOfDirectoryAtPath:base error:nil];
     if (!dirs.count) return @[];
 
-    NSMutableArray *targets = [NSMutableArray arrayWithCapacity:4];
+    NSMutableArray *out = [NSMutableArray array];
     for (NSString *d in dirs) {
         NSString *full = [base stringByAppendingPathComponent:d];
         BOOL isDir = NO;
         if (![fm fileExistsAtPath:full isDirectory:&isDir] || !isDir) continue;
-        if ([fm fileExistsAtPath:[full stringByAppendingPathComponent:markerFile]]) {
-            [targets addObject:full];
+
+        for (NSString *f in [fm contentsOfDirectoryAtPath:full error:nil]) {
+            if ([f.pathExtension.lowercaseString isEqualToString:@"mcp"]) {
+                [out addObject:full];
+                break;
+            }
         }
     }
-    return targets;
+    return out;
+}
+
+// 按关键字命中（目录名或内部文件名），命中不到返回空
+static NSArray<NSString*>* mcpTargetsMatching(NSArray<NSString*> *keywords) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSMutableArray *hits = [NSMutableArray array];
+
+    for (NSString *dir in findAllMCPTargets()) {
+        NSString *name = dir.lastPathComponent;
+        NSArray<NSString*> *inner = [fm contentsOfDirectoryAtPath:dir error:nil];
+
+        BOOL matched = NO;
+        for (NSString *kw in keywords) {
+            if ([name rangeOfString:kw options:NSCaseInsensitiveSearch].location != NSNotFound) { matched = YES; break; }
+            for (NSString *f in inner) {
+                if ([f rangeOfString:kw options:NSCaseInsensitiveSearch].location != NSNotFound) { matched = YES; break; }
+            }
+            if (matched) break;
+        }
+        if (matched) [hits addObject:dir];
+    }
+    return hits;
 }
 
 NSString* findBugudaoTarget(void) {
-    return scanPackcacheFor(@"HudAddonScript.mcp").firstObject;
+    return mcpTargetsMatching(@[@"hud", @"bugudao", @"bjd", @"布吉岛"]).firstObject;
 }
 
 NSArray<NSString*>* findAllBugudaoTargets(void) {
-    return scanPackcacheFor(@"HudAddonScript.mcp");
+    NSArray *r = mcpTargetsMatching(@[@"hud", @"bugudao", @"bjd", @"布吉岛"]);
+    // 新版本改了脚本名的极端情况：退到全部 mcp 目录，宁可写进去也不报「目标不存在」
+    return r.count ? r : findAllMCPTargets();
 }
 
 NSArray<NSString*>* findAllMisakiTargets(void) {
-    return scanPackcacheFor(@"MisakiCoreScript.mcp");
+    NSArray *r = mcpTargetsMatching(@[@"misaki", @"msk"]);
+    return r.count ? r : findAllMCPTargets();
 }
 
 NSRegularExpression* killenRegex(void) {

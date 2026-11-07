@@ -2,6 +2,7 @@
 #import "MainViewController_Private.h"
 #import "ResourceManager.h"
 #import "BaseComponents.h"
+#import "LLLAnim.h"
 #import <objc/runtime.h>
 #import <AVFoundation/AVFoundation.h>
 
@@ -227,8 +228,7 @@
     if ([self.qp containsObject:p]) { ShowToast(@"已在队列",1.5,YES,YES); return; }
     [self.qn addObject:n]; [self.qp addObject:p]; [self.qt reloadData]; [self upEmpty:self.qt]; [self saveQ];
     ShowToast([NSString stringWithFormat:@"已添加: %@", n],1.5,YES,NO); PlayHaptic(YES);
-    [UIView animateWithDuration:0.15 animations:^{ b.transform = CGAffineTransformMakeScale(1.3,1.3); }];
-    [UIView animateWithDuration:0.15 delay:0.15 options:0 animations:^{ b.transform = CGAffineTransformIdentity; } completion:nil];
+    LLLPop(b);
 }
 
 - (void)clrQ {
@@ -246,8 +246,7 @@
     if ([self.plqp containsObject:p]) { ShowToast(@"已在队列",1.5,YES,YES); return; }
     [self.plqn addObject:n]; [self.plqp addObject:p]; [self.pqt reloadData]; [self upEmpty:self.pqt]; [self saveQ];
     ShowToast([NSString stringWithFormat:@"已添加: %@", n],1.5,YES,NO); PlayHaptic(YES);
-    [UIView animateWithDuration:0.15 animations:^{ b.transform = CGAffineTransformMakeScale(1.3,1.3); }];
-    [UIView animateWithDuration:0.15 delay:0.15 options:0 animations:^{ b.transform = CGAffineTransformIdentity; } completion:nil];
+    LLLPop(b);
 }
 
 - (void)clrPQ {

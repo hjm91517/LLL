@@ -3,6 +3,8 @@
 #import "BaseComponents.h"
 #import "ResourceManager.h"
 #import "FloatMonitor.h"
+#import "PluginInfo.h"
+#import "LLLAnim.h"
 #import <objc/runtime.h>
 
 #import "MainViewController+SettingsBackground.h"
@@ -28,6 +30,9 @@ static void lllReload(UITableView *tv) {
     dispatch_source_t _timer;
     NSUInteger _delCount;
     BOOL _dis;
+    UIView *_indicator;      // 侧栏滑块
+    UILabel *_headerTitle;   // 顶部主标题
+    UILabel *_headerSub;     // 顶部副标题（显示探测到的注入目标）
 }
 
 - (instancetype)init {
@@ -116,6 +121,33 @@ static void lllReload(UITableView *tv) {
     tit.font = [UIFont systemFontOfSize:kTitleFontSize weight:UIFontWeightBold];
     tit.translatesAutoresizingMaskIntoConstraints = NO;
     [content addSubview:tit];
+    _headerTitle = tit;
+
+    // 副标题直接显示探测到的注入目录，版本对不对一眼能看出来
+    UILabel *subt = [UILabel new];
+    subt.text = [NSString stringWithFormat:@"目标 · %@", targetPathDisplayName()];
+    subt.textColor = kSecondaryTextColor;
+    subt.font = [UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightRegular];
+    subt.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    subt.translatesAutoresizingMaskIntoConstraints = NO;
+    [content addSubview:subt];
+    _headerSub = subt;
+
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeBtn.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg =
+            [UIImageSymbolConfiguration configurationWithPointSize:15 weight:UIImageSymbolWeightSemibold];
+        [closeBtn setImage:[UIImage systemImageNamed:@"xmark" withConfiguration:cfg] forState:UIControlStateNormal];
+    } else {
+        [closeBtn setTitle:@"×" forState:UIControlStateNormal];
+    }
+    closeBtn.tintColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+    closeBtn.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.08];
+    closeBtn.layer.cornerRadius = 15;
+    closeBtn.layer.cornerCurve = kCACornerCurveContinuous;
+    [closeBtn addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside];
+    [content addSubview:closeBtn];
 
     UIView *div = [UIView new];
     div.backgroundColor = kDividerColor;
@@ -130,6 +162,17 @@ static void lllReload(UITableView *tv) {
     sidebar.layer.borderColor = kCardBorderColor.CGColor;
     sidebar.translatesAutoresizingMaskIntoConstraints = NO;
     [content addSubview:sidebar];
+
+    // 选中滑块：在 stack 之前加进去，保证压在按钮下面
+    _indicator = [UIView new];
+    _indicator.backgroundColor = kTabActivePillColor;
+    _indicator.layer.cornerRadius = kPillCornerRadius;
+    _indicator.layer.cornerCurve = kCACornerCurveContinuous;
+    _indicator.layer.borderWidth = kHairline;
+    _indicator.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.10].CGColor;
+    _indicator.hidden = YES;
+    _indicator.userInteractionEnabled = NO;
+    [sidebar addSubview:_indicator];
 
     UIStackView *sv = [[UIStackView alloc] init];
     sv.axis = UILayoutConstraintAxisVertical;
@@ -331,9 +374,19 @@ static void lllReload(UITableView *tv) {
     ]];
 
     [NSLayoutConstraint activateConstraints:@[
-        [tit.topAnchor constraintEqualToAnchor:content.topAnchor constant:20],
+        [tit.topAnchor constraintEqualToAnchor:content.topAnchor constant:18],
         [tit.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:22],
-        [div.topAnchor constraintEqualToAnchor:tit.bottomAnchor constant:14],
+
+        [subt.topAnchor constraintEqualToAnchor:tit.bottomAnchor constant:2],
+        [subt.leadingAnchor constraintEqualToAnchor:tit.leadingAnchor],
+        [subt.trailingAnchor constraintLessThanOrEqualToAnchor:closeBtn.leadingAnchor constant:-10],
+
+        [closeBtn.centerYAnchor constraintEqualToAnchor:tit.centerYAnchor],
+        [closeBtn.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-18],
+        [closeBtn.widthAnchor constraintEqualToConstant:30],
+        [closeBtn.heightAnchor constraintEqualToConstant:30],
+
+        [div.topAnchor constraintEqualToAnchor:subt.bottomAnchor constant:12],
         [div.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:20],
         [div.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-20],
         [div.heightAnchor constraintEqualToConstant:0.5],
@@ -358,6 +411,13 @@ static void lllReload(UITableView *tv) {
     [self reloadMusicData];
     [self refreshBgFiles];
     [self updateBackground];
+
+    // 首次布局后把侧栏滑块摆到「材质包」上
+    __weak typeof(self) w = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        __strong typeof(w) s = w;
+        if (s) [s setTab:s.tab1 active:YES];
+    });
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -387,9 +447,35 @@ static void lllReload(UITableView *tv) {
 - (void)setTab:(UIButton *)tab active:(BOOL)active {
     if (!tab) return;
     tab.tintColor = active ? kTabActiveColor : kTabNormalColor;
-    tab.backgroundColor = active ? kTabActivePillColor : UIColor.clearColor;
-    tab.transform = active ? CGAffineTransformMakeScale(1.04, 1.04)
-                           : CGAffineTransformIdentity;
+    [tab setTitleColor:(active ? kTabActiveColor : kTabNormalColor) forState:UIControlStateNormal];
+
+    if (!active || !_indicator || !_indicator.superview) return;
+
+    CGRect f = [tab convertRect:tab.bounds toView:_indicator.superview];
+    f = CGRectInset(f, 3, 3);
+
+    BOOL first = _indicator.hidden;
+    _indicator.hidden = NO;
+
+    if (first) {
+        _indicator.frame = f;
+        _indicator.alpha = 0;
+        LLLSpring(kLLLNormal, 0.9, ^{ _indicator.alpha = 1; });
+    } else {
+        LLLSpring(0.34, 0.82, ^{ _indicator.frame = f; });
+    }
+}
+
+- (void)setHeader:(NSString *)title sub:(NSString *)sub {
+    if (!_headerTitle) return;
+    _headerTitle.text = title ?: _headerTitle.text;
+    if (sub) _headerSub.text = sub;
+    _headerTitle.alpha = 0.35;
+    LLLSpring(kLLLNormal, 0.9, ^{ _headerTitle.alpha = 1; });
+}
+
+- (void)closePanel {
+    toggleMainWindow();
 }
 
 - (UIButton *)tBtn:(NSString *)t ico:(NSString *)i act:(SEL)a {
@@ -446,11 +532,11 @@ static void lllReload(UITableView *tv) {
 }
 
 - (void)down:(UIButton *)b {
-    [UIView animateWithDuration:0.1 animations:^{ b.transform = CGAffineTransformMakeScale(0.95, 0.95); }];
+    LLLPressDown(b);
 }
 
 - (void)up:(UIButton *)b {
-    [UIView animateWithDuration:0.1 animations:^{ b.transform = CGAffineTransformIdentity; }];
+    LLLPressUp(b);
 }
 
 - (UITableView *)tv:(NSString *)rid {
@@ -472,48 +558,111 @@ static void lllReload(UITableView *tv) {
 #pragma mark - 标签切换
 
 - (void)switchTo:(UITableView *)to hide:(NSArray *)others bar:(UIView *)bar {
-    [UIView transitionWithView:self.view duration:0.25 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
-        to.hidden = NO;
-        for (UITableView *v in others) v.hidden = YES;
-        self.settingsView.hidden = YES;
-        [self setTab:self.tab1 active:(to == self.st)];
-        [self setTab:self.tab2 active:(to == self.qt)];
-        [self setTab:self.tab3 active:(to == self.pt)];
-        [self setTab:self.tab4 active:(to == self.pqt)];
-        [self setTab:self.tab6 active:(to == self.musict)];
-        [self setTab:self.tab7 active:NO];
-    } completion:nil];
+    UITableView *from = nil;
+    for (UITableView *v in others) {
+        if (!v.hidden) { from = v; break; }
+    }
 
-    self.ab.hidden = (bar != self.ab);
-    self.pab.hidden = (bar != self.pab);
-    self.musicControlBar.hidden = (bar != self.musicControlBar);
+    to.hidden = NO;
+    for (UITableView *v in others) v.hidden = YES;
+    self.settingsView.hidden = YES;
+
+    [self setTab:self.tab1 active:(to == self.st)];
+    [self setTab:self.tab2 active:(to == self.qt)];
+    [self setTab:self.tab3 active:(to == self.pt)];
+    [self setTab:self.tab4 active:(to == self.pqt)];
+    [self setTab:self.tab6 active:(to == self.musict)];
+    [self setTab:self.tab7 active:NO];
+
+    // 内容切换：旧页面快速淡出，新页面从下方 10pt 弹进来
+    if (from && from != to) {
+        NSTimeInterval d = kLLLFast;
+        [UIView animateWithDuration:d animations:^{ from.alpha = 0; }];
+    }
+    to.alpha = 0;
+    to.transform = CGAffineTransformMakeTranslation(0, 10);
+    LLLSpring(kLLLNormal, 0.88, ^{
+        to.alpha = 1;
+        to.transform = CGAffineTransformIdentity;
+    });
+
+    // 底部操作条：淡入淡出，别硬切
+    NSArray *bars = @[self.ab, self.pab, self.musicControlBar];
+    for (UIView *b in bars) {
+        BOOL shouldShow = (b == bar);
+        if (shouldShow) {
+            b.hidden = NO;
+            b.alpha = 0;
+            LLLSpring(kLLLNormal, 0.9, ^{ b.alpha = 1; });
+        } else if (!b.hidden) {
+            [UIView animateWithDuration:kLLLFast animations:^{ b.alpha = 0; }
+                             completion:^(BOOL f) { b.hidden = YES; }];
+        }
+    }
 
     NSLayoutConstraint *old = objc_getAssociatedObject(self, "bot");
     if (old) [old setActive:NO];
-    NSLayoutConstraint *nb = bar ? [to.bottomAnchor constraintEqualToAnchor:bar.topAnchor constant:-8]
-                                 : [to.bottomAnchor constraintEqualToAnchor:to.superview.bottomAnchor constant:-6];
+    NSLayoutConstraint *nb = bar ? [to.bottomAnchor constraintEqualToAnchor:bar.topAnchor constant:-10]
+                                 : [to.bottomAnchor constraintEqualToAnchor:to.superview.bottomAnchor constant:-8];
     [nb setActive:YES];
     objc_setAssociatedObject(self, "bot", nb, OBJC_ASSOCIATION_RETAIN);
 }
 
-- (void)showSrcTab    { [self reloadSrcData]; [self switchTo:self.st hide:@[self.qt, self.pt, self.pqt, self.musict] bar:nil]; }
-- (void)showQueueTab  { [self switchTo:self.qt hide:@[self.st, self.pt, self.pqt, self.musict] bar:self.ab]; }
-- (void)showPluginTab { [self reloadPluginData]; [self switchTo:self.pt hide:@[self.st, self.qt, self.pqt, self.musict] bar:nil]; }
-- (void)showPluginQueueTab { [self switchTo:self.pqt hide:@[self.st, self.qt, self.pt, self.musict] bar:self.pab]; }
-- (void)showMusicTab  { [self reloadMusicData]; [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:self.musicControlBar]; }
+- (void)showSrcTab {
+    [self setHeader:@"材质包" sub:[NSString stringWithFormat:@"目标 · %@", targetPathDisplayName()]];
+    [self reloadSrcData];
+    [self switchTo:self.st hide:@[self.qt, self.pt, self.pqt, self.musict] bar:nil];
+}
+
+- (void)showQueueTab {
+    [self setHeader:@"注入队列" sub:[NSString stringWithFormat:@"%lu 项待注入", (unsigned long)self.qn.count]];
+    [self switchTo:self.qt hide:@[self.st, self.pt, self.pqt, self.musict] bar:self.ab];
+}
+
+- (void)showPluginTab {
+    [self setHeader:@"MCP 插件" sub:[NSString stringWithFormat:@"%lu 项可用", (unsigned long)self.pln.count]];
+    [self reloadPluginData];
+    [self switchTo:self.pt hide:@[self.st, self.qt, self.pqt, self.musict] bar:nil];
+}
+
+- (void)showPluginQueueTab {
+    [self setHeader:@"插件注入" sub:[NSString stringWithFormat:@"%lu 项待注入", (unsigned long)self.plqn.count]];
+    [self switchTo:self.pqt hide:@[self.st, self.qt, self.pt, self.musict] bar:self.pab];
+}
+
+- (void)showMusicTab {
+    [self setHeader:@"音乐盒" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
+    [self reloadMusicData];
+    [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:self.musicControlBar];
+}
 
 - (void)showSettingsTab {
-    [UIView transitionWithView:self.view duration:0.25 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
-        for (UITableView *v in @[self.st, self.qt, self.pt, self.pqt, self.musict]) v.hidden = YES;
-        self.settingsView.hidden = NO;
-        [self setTab:self.tab1 active:NO];
-        [self setTab:self.tab2 active:NO];
-        [self setTab:self.tab3 active:NO];
-        [self setTab:self.tab4 active:NO];
-        [self setTab:self.tab6 active:NO];
-        [self setTab:self.tab7 active:YES];
-    } completion:nil];
-    self.ab.hidden = self.pab.hidden = self.musicControlBar.hidden = YES;
+    for (UITableView *v in @[self.st, self.qt, self.pt, self.pqt, self.musict]) v.hidden = YES;
+
+    self.settingsView.hidden = NO;
+    self.settingsView.alpha = 0;
+    self.settingsView.transform = CGAffineTransformMakeTranslation(0, 10);
+    LLLSpring(kLLLNormal, 0.88, ^{
+        self.settingsView.alpha = 1;
+        self.settingsView.transform = CGAffineTransformIdentity;
+    });
+
+    [self setTab:self.tab1 active:NO];
+    [self setTab:self.tab2 active:NO];
+    [self setTab:self.tab3 active:NO];
+    [self setTab:self.tab4 active:NO];
+    [self setTab:self.tab6 active:NO];
+    [self setTab:self.tab7 active:YES];
+
+    [self setHeader:@"设置" sub:[NSString stringWithFormat:@"LLL %@", kPluginVersion]];
+
+    for (UIView *b in @[self.ab, self.pab, self.musicControlBar]) {
+        if (!b.hidden) {
+            [UIView animateWithDuration:kLLLFast animations:^{ b.alpha = 0; }
+                             completion:^(BOOL f) { b.hidden = YES; }];
+        }
+    }
+
     NSLayoutConstraint *old = objc_getAssociatedObject(self, "bot");
     if (old) { [old setActive:NO]; objc_setAssociatedObject(self, "bot", nil, OBJC_ASSOCIATION_RETAIN); }
 }

@@ -1,7 +1,8 @@
-#define kPluginVersion @"26.2.4.1"
+#define kPluginVersion @"26.3.0"
 
 #define kPluginFeatures @[ \
     @"• 材质包注入与管理（增量注入 / 秒级跳过未变文件）", \
+    @"• 版本自适应：自动探测 3.9 / 3.10 及以后的资源包目录", \
     @"• mcp 插件注入（布吉岛 / EC / Misaki）", \
     @"• 音乐盒（支持 mp3 / mp4 等）", \
     @"• 自定义背景（图片 / 视频 + 定时切换）", \
