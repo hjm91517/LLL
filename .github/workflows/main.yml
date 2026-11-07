@@ -110,12 +110,9 @@ jobs:
             TARGET="iphone:clang:latest:$IOS_DT" \
             $EXTRA
 
-          echo "--- 打包（尽力而为，失败不影响 dylib）---"
-          make package \
-            FINALPACKAGE=1 DEBUG=0 \
-            ARCHS="$ARCHS" \
-            TARGET="iphone:clang:latest:$IOS_DT" \
-            $EXTRA || echo "!! package 跳过"
+          # 不走 make package：这个工程是注入用的 dylib，不需要 deb 外壳。
+          # Theos 的 stage 阶段会强校验 filter plist，那条路径对本项目没有意义。
+          echo "--- 打包 deb 已跳过（直接交付 dylib）---"
 
       - name: Collect & sign
         run: |
@@ -155,6 +152,12 @@ jobs:
           done
 
           find . -name '*.deb' -not -path './.git/*' -exec cp -f {} dist/ \; 2>/dev/null || true
+
+          # 顺带打一份 zip，方便一口气拖进设备
+          if [ -n "$(ls -A dist)" ]; then
+            ( cd dist && zip -qry /tmp/LLL-bundle.zip . )
+            cp -f /tmp/LLL-bundle.zip "dist/$(basename $GITHUB_REPOSITORY)-dylib.zip"
+          fi
 
           echo "--- dist ---"
           ls -la dist
