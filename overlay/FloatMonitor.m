@@ -31,6 +31,9 @@ static UIView * GetGameRootView(void) {
     return nil;
 }
 
+#define kLLLBallTag 0x4C4C4C
+#define kLLLPanelTag 0x4C504E
+
 static FloatingBallView *g_ballView = nil;
 
 void showFloatingBall(void) {
@@ -44,12 +47,18 @@ void showFloatingBall(void) {
         return;
     }
 
+    // 万一上一份 dylib 已经挂过一个，先清掉
+    for (UIView *v in [gameView.subviews copy]) {
+        if (v.tag == kLLLBallTag) [v removeFromSuperview];
+    }
+
     CGSize size = CGSizeMake(70, 70);
     CGPoint center = [FloatingBallView loadPos:size];
 
     FloatingBallView *ball = [[FloatingBallView alloc] initWithFrame:CGRectMake(0, 0, size.width, size.height)];
     ball.center = center;
 
+    ball.tag = kLLLBallTag;
     ball.layer.zPosition = MAXFLOAT;
     [gameView addSubview:ball];
     g_ballView = ball;

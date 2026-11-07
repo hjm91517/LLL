@@ -539,7 +539,7 @@ static void lllReload(UITableView *tv) {
     _playerCover = [[UIImageView alloc] init];
     _playerCover.translatesAutoresizingMaskIntoConstraints = NO;
     _playerCover.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
-    _playerCover.layer.cornerRadius = 16;
+    _playerCover.layer.cornerRadius = 42;      // 84/2 → 圆形唱盘
     _playerCover.layer.cornerCurve = kCACornerCurveContinuous;
     _playerCover.clipsToBounds = YES;
     _playerCover.contentMode = UIViewContentModeCenter;
@@ -549,6 +549,8 @@ static void lllReload(UITableView *tv) {
         _playerCover.image = [UIImage systemImageNamed:@"music.note" withConfiguration:cfg];
         _playerCover.tintColor = [UIColor colorWithWhite:0.85 alpha:1];
     }
+    _playerCover.layer.borderWidth = 1;
+    _playerCover.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
     [_playerCard addSubview:_playerCover];
 
     _playerTitle = [UILabel new];

@@ -359,6 +359,7 @@ static NSUInteger lllCountFiles(NSString *dir) {
                        (unsigned long)lllCountFiles(t));
                 lllLogPackRootFiles(t);
                 lllStripSignatures(t);
+                lllRewriteFolderMD5(t);
             }
 
             if (any && mirrors.count) {

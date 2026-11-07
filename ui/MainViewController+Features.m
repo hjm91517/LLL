@@ -149,6 +149,22 @@ static void (^gLLLCloseCloudCard)(void) = nil;
         }
     }
 
+    if (self.playerCover) {
+        if (self.isPlaying) {
+            if (![self.playerCover.layer animationForKey:@"lll.spin"]) {
+                CABasicAnimation *spin = [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
+                spin.fromValue = @0;
+                spin.toValue = @(M_PI * 2);
+                spin.duration = 12.0;
+                spin.repeatCount = HUGE_VALF;
+                spin.removedOnCompletion = NO;
+                [self.playerCover.layer addAnimation:spin forKey:@"lll.spin"];
+            }
+        } else {
+            [self.playerCover.layer removeAnimationForKey:@"lll.spin"];
+        }
+    }
+
     if (self.isPlaying) {
         [self startProgressTimer];
     } else {

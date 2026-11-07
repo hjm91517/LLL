@@ -21,6 +21,7 @@
 #import <string.h>
 #import <errno.h>
 #import <libkern/OSCacheControl.h>
+#import <dlfcn.h>
 
 #pragma mark - 路径 / 日志
 
@@ -111,6 +112,26 @@ static BOOL LLLPatchBuji(void) {
     return YES;
 }
 
+#pragma mark - 重复加载检测
+
+// 用户经常把新 dylib 丢进 Frameworks 而不删旧的，结果 (6).dylib 和 (7).dylib 同时被加载，
+// 每份都有自己的静态变量 → 两个悬浮球、两套 UI。这里只让"最先被加载的那一份"活着。
+static void LLLMarkerFn(void) { }
+
+static BOOL LLLIsDuplicateDylib(void) {
+    Dl_info info;
+    if (dladdr((void *)&LLLMarkerFn, &info) == 0 || !info.dli_fbase) return NO;
+
+    uint32_t n = _dyld_image_count();
+    for (uint32_t i = 0; i < n; i++) {
+        const char *name = _dyld_get_image_name(i);
+        if (!name || !strstr(name, "MaterialPackManager")) continue;
+        const struct mach_header *h = _dyld_get_image_header(i);
+        return (h != (const struct mach_header *)info.dli_fbase);
+    }
+    return NO;
+}
+
 #pragma mark - 授权窗口
 
 static NSString * const kLicStartKey = @"LLL.licenseStart";
@@ -193,6 +214,11 @@ static void LLLInit(void) {
     @autoreleasepool {
         @try {
             if (LLLFileExists(@"LLL_OFF")) return;
+
+            if (LLLIsDuplicateDylib()) {
+                lllLog(@"检测到重复加载的 MaterialPackManager，本份退出");
+                return;
+            }
 
             LLLLog(@"===== LLL %@ 启动 =====", kPluginVersion);
             LLLLog(@"bundle=%@", [NSBundle mainBundle].bundleIdentifier);

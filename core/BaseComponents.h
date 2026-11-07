@@ -62,6 +62,7 @@ NSArray<NSString*>* hotPatchPackDirs(void);
 NSString* lllPackDirName(void);
 BOOL lllStripSignatures(NSString *dir);
 void lllLogPackRootFiles(NSString *dir);
+BOOL lllRewriteFolderMD5(NSString *dir);
 NSString* findBugudaoTarget(void);
 NSArray<NSString*>* findAllBugudaoTargets(void);
 NSArray<NSString*>* findAllMisakiTargets(void);

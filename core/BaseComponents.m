@@ -1,6 +1,7 @@
 #import "BaseComponents.h"
 #import "LLLAnim.h"
 #import <ImageIO/ImageIO.h>
+#import <CommonCrypto/CommonCrypto.h>
 #import <objc/runtime.h>
 #import <AVFoundation/AVFoundation.h>
 
@@ -602,6 +603,53 @@ void lllLogPackRootFiles(NSString *dir) {
            files.count ? [files componentsJoinedByString:@", "] : @"(无)");
 }
 
+
+#pragma mark - folder_md5.json 重写
+
+static NSString *LLLMD5OfFile(NSString *path) {
+    NSData *d = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
+    if (!d) return nil;
+    unsigned char digest[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(d.bytes, (CC_LONG)d.length, digest);
+    NSMutableString *s = [NSMutableString stringWithCapacity:32];
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) [s appendFormat:@"%02x", digest[i]];
+    return s;
+}
+
+// 3.10 的补丁包靠 folder_md5.json 里的哈希清单做完整性校验。
+// 加了文件不改清单 → 整包判无效。这里按现存文件重算一遍。
+BOOL lllRewriteFolderMD5(NSString *dir) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *p = [dir stringByAppendingPathComponent:@"folder_md5.json"];
+    NSData *data = [NSData dataWithContentsOfFile:p];
+    if (!data) return NO;
+
+    NSString *head = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    lllLog(@"   folder_md5 样例: %@", head.length > 200 ? [head substringToIndex:200] : head);
+
+    id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![json isKindOfClass:NSDictionary.class]) {
+        lllLog(@"   folder_md5 不是字典，跳过重写");
+        return NO;
+    }
+
+    NSMutableDictionary *out = [NSMutableDictionary dictionary];
+    NSDirectoryEnumerator *e = [fm enumeratorAtPath:dir];
+    for (NSString *rel in e) {
+        if ([rel.lastPathComponent isEqualToString:@"folder_md5.json"]) continue;
+        NSString *full = [dir stringByAppendingPathComponent:rel];
+        BOOL isDir = NO;
+        if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) continue;
+        NSString *md5 = LLLMD5OfFile(full);
+        if (md5) out[rel] = md5;
+    }
+
+    NSData *o = [NSJSONSerialization dataWithJSONObject:out options:0 error:nil];
+    BOOL ok = o && [o writeToFile:p atomically:YES];
+    lllLog(@"   folder_md5 重写: %@ (%lu 项)", ok ? @"OK" : @"FAIL", (unsigned long)out.count);
+    return ok;
+}
+
 #pragma mark - 主题色
 
 static UIColor *LLLThemeDefaultPreset(LLLThemeIndex i) {
@@ -681,7 +729,14 @@ BOOL lllEnsurePackManifestAt(NSString *dir) {
     ensureDir(dir);
 
     NSString *mp = [dir stringByAppendingPathComponent:@"manifest.json"];
-    if ([NSFileManager.defaultManager fileExistsAtPath:mp]) return YES;
+    NSString *pmp = [dir stringByAppendingPathComponent:@"pack_manifest.json"];
+    if ([NSFileManager.defaultManager fileExistsAtPath:mp]) {
+        // 老包可能只有 manifest.json，补一份网易习惯的 pack_manifest.json
+        if (![NSFileManager.defaultManager fileExistsAtPath:pmp]) {
+            [[NSFileManager defaultManager] copyItemAtPath:mp toPath:pmp error:nil];
+        }
+        return YES;
+    }
 
     NSDictionary *m = @{
         @"format_version" : @2,
@@ -702,7 +757,10 @@ BOOL lllEnsurePackManifestAt(NSString *dir) {
     NSData *d = [NSJSONSerialization dataWithJSONObject:m
                                                 options:NSJSONWritingPrettyPrinted
                                                   error:nil];
-    return d && [d writeToFile:mp atomically:YES];
+    if (!d) return NO;
+    BOOL ok = [d writeToFile:mp atomically:YES];
+    [d writeToFile:pmp atomically:YES];
+    return ok;
 }
 
 BOOL lllEnsureInjectPackManifest(void) {
