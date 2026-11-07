@@ -433,13 +433,13 @@ void lllLog(NSString *fmt, ...) {
 // 所以这里把所有可能的位置都铺一遍，谁被加载算谁的。
 NSArray<NSString*>* injectionTargetDirs(void) {
     NSFileManager *fm = NSFileManager.defaultManager;
-    NSMutableArray *out = [NSMutableArray array];
+    NSMutableArray *all = [NSMutableArray array];
     NSString *leaf = targetPath().lastPathComponent;
 
     void (^addDir)(NSString *) = ^(NSString *path) {
         if (!path.length) return;
-        if ([out containsObject:path]) return;
-        [out addObject:path];
+        if ([all containsObject:path]) return;
+        [all addObject:path];
     };
 
     addDir(targetPath());
@@ -461,13 +461,26 @@ NSArray<NSString*>* injectionTargetDirs(void) {
         }
     }
 
-    // 游戏自己那几个 3.10_v_* 热更包，直接覆盖进去
     for (NSString *dir in hotPatchPackDirs()) addDir(dir);
-
-    // 用户自己下载的包 —— 最后一层，游戏一般不对它做完整性校验
     for (NSString *dir in userResourcePackDirs()) addDir(dir);
 
-    return out;
+    // 默认只打两个目标：自己的包 + v_ui 热更包。
+    // 10 个目标意味着 4 万多次文件拷贝，游戏边跑边被写，必卡。
+    // 想要全铺，把 NSUserDefaults 里的 LLL.multiTarget 设成 YES。
+    NSNumber *multi = [[NSUserDefaults standardUserDefaults] objectForKey:@"LLL.multiTarget"];
+    BOOL doMulti = multi ? multi.boolValue : NO;
+    if (doMulti) return all;
+
+    NSMutableArray *slim = [NSMutableArray array];
+    [slim addObject:targetPath()];
+
+    for (NSString *d in all) {
+        if ([d rangeOfString:@"_v_ui_"].location != NSNotFound) {
+            [slim addObject:d];
+            break;
+        }
+    }
+    return slim;
 }
 
 // 把游戏根下一层的目录结构完整打进日志 —— 这是唯一能确认 3.10 真实布局的办法

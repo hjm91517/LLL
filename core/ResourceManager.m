@@ -242,6 +242,14 @@ static void LLLJournalNote(NSString *dst) {
     NSString *bak = @"";
 
     if ([fm fileExistsAtPath:dst]) {
+        NSDictionary *attr = [fm attributesOfItemAtPath:dst error:nil];
+        unsigned long long sz = attr ? [attr[NSFileSize] unsignedLongLongValue] : 0;
+        if (sz > 2ULL * 1024 * 1024) {          // 超过 2MB 不备份，避免拖慢注入
+            lllLog(@"跳过大文件备份: %@", dst.lastPathComponent);
+            sJournalRoot = sJournalRoot;
+            [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel, @"bak": @"" }];
+            return;
+        }
         NSString *key = [NSString stringWithFormat:@"%lu", (unsigned long)sJournalRoot.hash];
         NSString *b = [[LLLBackupRoot() stringByAppendingPathComponent:key]
                        stringByAppendingPathComponent:rel];
@@ -470,8 +478,8 @@ static NSUInteger lllCountFiles(NSString *dir) {
             else     [fail addObject:name];
         }
 
-        if (ok.count > 0 && targets.count > 0) {
-            [EffectInjector mergeInto:targets.firstObject];
+        if (ok.count > 0) {
+            for (NSString *t in targets) [EffectInjector mergeInto:t];
         }
 
         // 让游戏重新扫一遍资源：删掉已知包清单和资源索引缓存。
