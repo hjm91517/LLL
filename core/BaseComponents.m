@@ -606,13 +606,22 @@ void lllLogPackRootFiles(NSString *dir) {
 
 #pragma mark - folder_md5.json 重写
 
-static NSString *LLLMD5OfFile(NSString *path) {
-    NSData *d = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
+static NSString *LLLMD5OfFile(NSString *path, BOOL uppercase) {
+    // 千万别用 NSDataReadingMappedIfSafe —— 游戏在跑的时候映射它的文件，
+    // 页面一被替换就 SIGBUS，那是杀不掉的崩溃。老老实实读进内存。
+    NSDictionary *attr = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+    if (attr) {
+        unsigned long long size = [attr[NSFileSize] unsignedLongLongValue];
+        if (size > 8ULL * 1024 * 1024) return nil;     // 超大文件跳过，别把内存撑爆
+    }
+    NSData *d = [NSData dataWithContentsOfFile:path options:0 error:nil];
     if (!d) return nil;
     unsigned char digest[CC_MD5_DIGEST_LENGTH];
     CC_MD5(d.bytes, (CC_LONG)d.length, digest);
     NSMutableString *s = [NSMutableString stringWithCapacity:32];
-    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) [s appendFormat:@"%02x", digest[i]];
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
+        [s appendFormat:(uppercase ? @"%02X" : @"%02x"), digest[i]];
+    }
     return s;
 }
 
@@ -633,6 +642,16 @@ BOOL lllRewriteFolderMD5(NSString *dir) {
         return NO;
     }
 
+    // 原始文件用大写还是小写？照抄，别自作主张
+    BOOL upper = NO;
+    for (id v in [(NSDictionary *)json allValues]) {
+        if ([v isKindOfClass:NSString.class] && [v length] == 32) {
+            NSString *first = [v substringToIndex:1];
+            upper = [first isEqualToString:[first uppercaseString]];
+            break;
+        }
+    }
+
     NSMutableDictionary *out = [NSMutableDictionary dictionary];
     NSDirectoryEnumerator *e = [fm enumeratorAtPath:dir];
     for (NSString *rel in e) {
@@ -640,7 +659,7 @@ BOOL lllRewriteFolderMD5(NSString *dir) {
         NSString *full = [dir stringByAppendingPathComponent:rel];
         BOOL isDir = NO;
         if ([fm fileExistsAtPath:full isDirectory:&isDir] && isDir) continue;
-        NSString *md5 = LLLMD5OfFile(full);
+        NSString *md5 = LLLMD5OfFile(full, upper);
         if (md5) out[rel] = md5;
     }
 

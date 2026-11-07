@@ -1285,6 +1285,9 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     } else if (self.videoMusicPlayer.currentItem) {
         total = CMTimeGetSeconds(self.videoMusicPlayer.currentItem.duration);
         cur = CMTimeGetSeconds(self.videoMusicPlayer.currentTime);
+    } else if (self.cloudPlayer.currentItem) {
+        total = CMTimeGetSeconds(self.cloudPlayer.currentItem.duration);
+        cur = CMTimeGetSeconds(self.cloudPlayer.currentTime);
     }
     if (total > 0.01 && !isnan(total)) {
         if (_progressSlider && !_progressSlider.isTracking)

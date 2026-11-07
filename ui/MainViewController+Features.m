@@ -339,6 +339,9 @@ static void (^gLLLCloseCloudCard)(void) = nil;
             s.cloudPlayer = [AVPlayer playerWithURL:url];
             [s applyVolume];
             [s.cloudPlayer play];
+            if (s.playerTitle)  s.playerTitle.text  = song[@"name"] ?: @"网易云";
+            if (s.playerArtist) s.playerArtist.text = song[@"artist"] ?: @"网易云音乐";
+            [s startProgressTimer];
             ShowToast([NSString stringWithFormat:@"播放: %@", song[@"name"]], 2, YES, NO);
         });
     }];
@@ -348,10 +351,8 @@ static void (^gLLLCloseCloudCard)(void) = nil;
 
 - (void)doInject {
     if (!self.qp.count) { ShowToast(@"队列为空", 1.5, YES, YES); PlayHaptic(NO); return; }
-    [MaterialHUD show:@"注入中..." inView:self.view];
     __weak typeof(self) w = self;
     [ResourceManager injectMats:self.qp names:self.qn cb:^(NSArray *ok, NSArray *fail) {
-        [MaterialHUD dismiss];
         __strong typeof(w) s = w;
         if (!s) return;
         NSString *m = [s summaryText:@"注入" ok:ok fail:fail];

@@ -368,6 +368,112 @@ void LLLShowCustomCard(CGFloat width, CGFloat maxHeight,
     });
 }
 
+
+#pragma mark - 进度浮层
+
+static UIView *gProgCard = nil;
+static UILabel *gProgTitle = nil;
+static UILabel *gProgCounter = nil;
+static UITextView *gProgLog = nil;
+static NSMutableArray<NSString *> *gProgLines = nil;
+
+void LLLProgressShow(NSString *title) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            if (gProgCard) {
+                gProgTitle.text = title.length ? title : @"注入中";
+                return;
+            }
+            UIWindow *win = LLLOverlayWindow();
+            win.hidden = NO;
+            UIView *host = win.rootViewController.view;
+
+            UIView *dim = LLLCardDim(host);
+            dim.tag = 99021;
+            [host addSubview:dim];
+
+            UIView *card = LLLNewCard(300);
+            card.tag = 99022;
+            card.frame = CGRectMake(0, 0, 300, 268);
+            [host addSubview:card];
+            gProgCard = card;
+
+            gProgTitle = [[UILabel alloc] initWithFrame:CGRectMake(16, 14, 268, 22)];
+            gProgTitle.text = title.length ? title : @"注入中";
+            gProgTitle.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+            gProgTitle.textColor = UIColor.whiteColor;
+            [card addSubview:gProgTitle];
+
+            gProgCounter = [[UILabel alloc] initWithFrame:CGRectMake(16, 38, 268, 18)];
+            gProgCounter.text = @"0 / 0";
+            gProgCounter.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightBold];
+            gProgCounter.textColor = LLLAccentColor();
+            [card addSubview:gProgCounter];
+
+            gProgLog = [[UITextView alloc] initWithFrame:CGRectMake(10, 62, 280, 196)];
+            gProgLog.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
+            gProgLog.layer.cornerRadius = 10;
+            gProgLog.editable = NO;
+            gProgLog.scrollEnabled = YES;
+            gProgLog.showsVerticalScrollIndicator = YES;
+            gProgLog.textColor = [UIColor colorWithWhite:0.78 alpha:1];
+            gProgLog.font = [UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightRegular];
+            gProgLog.textContainerInset = UIEdgeInsetsMake(6, 6, 6, 6);
+            [card addSubview:gProgLog];
+
+            gProgLines = [NSMutableArray array];
+
+            card.center = CGPointMake(host.bounds.size.width / 2, host.bounds.size.height / 2);
+            card.alpha = 0;
+            card.transform = CGAffineTransformMakeScale(0.94, 0.94);
+            LLLSpring(0.32, 0.86, ^{ card.alpha = 1; card.transform = CGAffineTransformIdentity; });
+        } @catch (__unused NSException *e) { }
+    });
+}
+
+void LLLProgressUpdate(NSString *counter) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (gProgCounter && counter.length) gProgCounter.text = counter;
+    });
+}
+
+void LLLProgressLine(NSString *line) {
+    if (!line.length) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            if (!gProgLog || !gProgLines) return;
+            [gProgLines addObject:line];
+            while (gProgLines.count > 40) [gProgLines removeObjectAtIndex:0];
+            gProgLog.text = [gProgLines componentsJoinedByString:@"\n"];
+            if (gProgLog.text.length > 0) {
+                NSRange r = NSMakeRange(gProgLog.text.length - 1, 1);
+                [gProgLog scrollRangeToVisible:r];
+            }
+        } @catch (__unused NSException *e) { }
+    });
+}
+
+void LLLProgressHide(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            if (!gProgCard) return;
+            UIView *card = gProgCard;
+            gProgCard = nil; gProgTitle = nil; gProgCounter = nil; gProgLog = nil;
+            [gProgLines removeAllObjects]; gProgLines = nil;
+
+            UIView *host = card.superview;
+            UIView *dim = nil;
+            for (UIView *v in host.subviews) if (v.tag == 99021) { dim = v; break; }
+            [UIView animateWithDuration:0.2 animations:^{
+                card.alpha = 0; dim.alpha = 0;
+            } completion:^(BOOL f) {
+                [card removeFromSuperview];
+                [dim removeFromSuperview];
+            }];
+        } @catch (__unused NSException *e) { }
+    });
+}
+
 void LLLShowHUD(NSString *text, NSTimeInterval duration) {
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {

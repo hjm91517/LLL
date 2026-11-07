@@ -28,6 +28,12 @@ void LLLShowList(NSString *title,
 void LLLShowCustomCard(CGFloat width, CGFloat maxHeight,
                        void (^build)(UIView *card, void (^close)(void)));
 
+/// 注入进度浮层：标题 + 计数 + 滚动日志
+void LLLProgressShow(NSString *title);
+void LLLProgressUpdate(NSString *counter);
+void LLLProgressLine(NSString *line);
+void LLLProgressHide(void);
+
 /// 轻提示（不用系统 HUD）
 void LLLShowHUD(NSString *text, NSTimeInterval duration);
 

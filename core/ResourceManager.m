@@ -11,6 +11,7 @@
 #import "ResourceManager.h"
 #import "EffectInjector.h"
 #import <math.h>
+#import "LLLUiKit.h"
 
 #pragma mark - 深度合并
 
@@ -215,6 +216,8 @@ static BOOL sameFile(NSString *a, NSString *b) {
     return da && db && fabs([da timeIntervalSinceDate:db]) < 1.0;
 }
 
+static void LLLReportTick(NSString *path);
+
 // 容错版本：单个文件失败不影响整体，只要落了一个文件就返回 YES。
 // 旧实现只要碰到一个写不进去的文件就整包判失败，日志里全是 FAIL 但其实文件已经写进去了。
 static BOOL mergeDir(NSString *srcDir, NSString *dstDir) {
@@ -238,14 +241,15 @@ static BOOL mergeDir(NSString *srcDir, NSString *dstDir) {
             continue;
         }
 
-        if ([fm fileExistsAtPath:dst] && sameFile(src, dst)) { touched = YES; continue; }
-        if ([fm fileExistsAtPath:dst] && mergeFile(src, dst)) { touched = YES; continue; }
+        if ([fm fileExistsAtPath:dst] && sameFile(src, dst)) { LLLReportTick(src); touched = YES; continue; }
+        if ([fm fileExistsAtPath:dst] && mergeFile(src, dst)) { LLLReportTick(src); touched = YES; continue; }
 
         // 最后一招：删了重拷
         if ([fm fileExistsAtPath:dst]) [fm removeItemAtPath:dst error:nil];
-        if ([fm copyItemAtPath:src toPath:dst error:nil]) { touched = YES; continue; }
+        if ([fm copyItemAtPath:src toPath:dst error:nil]) { LLLReportTick(src); touched = YES; continue; }
 
         lllLog(@"!!! 写入失败: %@", dst);
+        LLLReportTick(src);
     }
     return touched;
 }
@@ -317,6 +321,25 @@ static void cleanCache(NSString *dir, NSRegularExpression *re, NSFileManager *fm
 }
 
 
+static NSUInteger sLLLDone = 0;
+static NSUInteger sLLLTotal = 1;
+static NSTimeInterval sLLLLastReport = 0;
+
+static void LLLReportTick(NSString *path) {
+    sLLLDone++;
+    NSTimeInterval now = CFAbsoluteTimeGetCurrent();
+    if (now - sLLLLastReport < 0.04 && sLLLDone < sLLLTotal) return;
+    sLLLLastReport = now;
+
+    NSString *counter = [NSString stringWithFormat:@"%lu / %lu",
+                         (unsigned long)sLLLDone, (unsigned long)sLLLTotal];
+    NSString *name = path.lastPathComponent;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LLLProgressUpdate(counter);
+        if (name.length) LLLProgressLine(name);
+    });
+}
+
 static NSUInteger lllCountFiles(NSString *dir) {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSDirectoryEnumerator *e = [fm enumeratorAtPath:dir];
@@ -338,6 +361,17 @@ static NSUInteger lllCountFiles(NSString *dir) {
     dispatch_async(g_fileQueue(), ^{
         NSArray<NSString*> *targets = injectionTargetDirs();
         NSMutableArray *ok = [NSMutableArray new], *fail = [NSMutableArray new];
+
+        // 先数一遍源文件总数，给进度层用
+        sLLLDone = 0;
+        sLLLTotal = 0;
+        for (NSUInteger i = 0; i < paths.count; i++) sLLLTotal += lllCountFiles(paths[i]);
+        sLLLTotal = MAX(sLLLTotal * MAX((NSInteger)targets.count, 1), 1);
+        sLLLLastReport = 0;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LLLProgressShow(@"注入中");
+        });
 
         lllLog(@"=== 注入开始：%lu 个源，%lu 个目标 ===",
                (unsigned long)paths.count, (unsigned long)targets.count);
@@ -390,6 +424,7 @@ static NSUInteger lllCountFiles(NSString *dir) {
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{
+            LLLProgressHide();
             if (cb) cb(ok, fail);
         });
     });
