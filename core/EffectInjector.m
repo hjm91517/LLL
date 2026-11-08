@@ -241,6 +241,10 @@ static const CGFloat kTextureSide = 16.0;
     return NO;
 }
 
++ (BOOL)generateNow {
+    return [self _render:[self currentConfig] error:nil];
+}
+
 + (BOOL)mergeInto:(NSString *)targetDir {
     if (![self isInstalled]) return YES;              // 没启用特效就不影响注入
     NSString *src = [self packDir];
@@ -248,7 +252,12 @@ static const CGFloat kTextureSide = 16.0;
     NSDirectoryEnumerator *e = [fm enumeratorAtPath:src];
     BOOL ok = YES;
     for (NSString *rel in e) {
-        if ([rel.lastPathComponent isEqualToString:@".lll_state"]) continue;
+        NSString *base = rel.lastPathComponent;
+        if ([base isEqualToString:@".lll_state"]) continue;
+        // 绝不能把特效包自己的 manifest 覆盖到目标包上，否则目标包 uuid 变了直接被游戏丢弃
+        if ([base isEqualToString:@"manifest.json"] ||
+            [base isEqualToString:@"pack_manifest.json"] ||
+            [base isEqualToString:@"folder_md5.json"]) continue;
         NSString *s = [src stringByAppendingPathComponent:rel];
         NSString *d = [targetDir stringByAppendingPathComponent:rel];
         BOOL isDir = NO;

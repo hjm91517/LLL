@@ -581,7 +581,20 @@ static NSUInteger lllCountFiles(NSString *dir) {
         }
 
         if (ok.count > 0) {
-            for (NSString *t in targets) [EffectInjector mergeInto:t];
+            // 配置里开着打击特效就自动生成，不用手动长按
+            NSDictionary *cfg = [EffectInjector currentConfig];
+            if ([cfg[@"enabled"] boolValue]) {
+                if (![EffectInjector isInstalled]) {
+                    BOOL g = [EffectInjector generateNow];
+                    lllLog(@"打击特效包生成: %@", g ? @"OK" : @"失败");
+                }
+                for (NSString *t in targets) {
+                    BOOL m = [EffectInjector mergeInto:t];
+                    lllLog(@"特效合并 -> %@ : %@", t.lastPathComponent, m ? @"OK" : @"FAIL");
+                }
+            } else {
+                lllLog(@"打击特效已关闭，跳过");
+            }
         }
 
         // 让游戏重新扫一遍资源：删掉已知包清单和资源索引缓存。

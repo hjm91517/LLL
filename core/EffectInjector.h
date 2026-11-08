@@ -23,6 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 把 overlay 包合并进已注入的目标目录（由 ResourceManager 调用）
 + (BOOL)mergeInto:(NSString *)targetDir;
++ (BOOL)generateNow;
 
 /// overlay 包目录：Caizhi/LLL_Effect
 + (NSString *)packDir;

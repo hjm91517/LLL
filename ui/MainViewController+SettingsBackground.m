@@ -19,6 +19,7 @@
             outField:(UITextField **)outField;
 - (UIView *)cardRow;
 - (void)themeChanged:(UISegmentedControl *)sender;
+- (void)toggleFloatHand:(UISwitch *)sender;
 @end
 
 @implementation MainViewController (SettingsBackground)
@@ -66,6 +67,11 @@
     [stack addArrangedSubview:watermarkRow];
 
     UISwitch *bgSw = nil;
+    UIView *floatHandRow = [self switchRow:@"悬浮手（手持物品悬浮）"
+                                  switchOn:[[NSUserDefaults standardUserDefaults] boolForKey:@"LLL.floatHand"]
+                                    action:@selector(toggleFloatHand:) outSwitch:NULL];
+    [stack addArrangedSubview:floatHandRow];
+
     UIView *bgRow = [self switchRow:@"自定义背景"
                            switchOn:[[NSUserDefaults standardUserDefaults] boolForKey:@"CustomBackgroundEnabled"]
                              action:@selector(toggleCustomBackground:) outSwitch:&bgSw];
@@ -335,6 +341,11 @@
     sender.selectedSegmentTintColor = LLLAccentColor();
     [self applyTheme];
     PlayHaptic(YES);
+}
+
+- (void)toggleFloatHand:(UISwitch *)s {
+    [[NSUserDefaults standardUserDefaults] setBool:s.isOn forKey:@"LLL.floatHand"];
+    ShowToast(s.isOn ? @"悬浮手已开启（下次启动生效）" : @"悬浮手已关闭", 1.8, YES, NO);
 }
 
 - (void)togglePerfMonitor:(UISwitch *)s { setPerformanceMonitorEnabled(s.isOn); }
