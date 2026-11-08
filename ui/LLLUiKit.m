@@ -128,6 +128,51 @@ void LLLShowSplash(void) {
     });
 }
 
+
+#pragma mark - 列表数据源
+
+@interface LLLListSheet : NSObject <UITableViewDataSource, UITableViewDelegate>
+@property (nonatomic, copy) NSArray<NSString *> *items;
+@property (nonatomic, copy) void (^onPick)(NSInteger);
+@property (nonatomic, copy) void (^onClose)(void);
+@end
+
+@implementation LLLListSheet
+
+- (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)section {
+    return _items.count;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)ip {
+    static NSString *cid = @"bbhj.cell";
+    UITableViewCell *c = [t dequeueReusableCellWithIdentifier:cid];
+    if (!c) {
+        c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cid];
+        c.backgroundColor = [UIColor colorWithWhite:1 alpha:0.05];
+        c.textLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+        c.textLabel.textColor = UIColor.whiteColor;
+        c.textLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        UIView *sel = [UIView new];
+        sel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.14];
+        c.selectedBackgroundView = sel;
+    }
+    c.textLabel.text = (ip.row < (NSInteger)_items.count) ? _items[(NSUInteger)ip.row] : @"";
+    return c;
+}
+
+- (CGFloat)tableView:(UITableView *)t heightForRowAtIndexPath:(NSIndexPath *)ip { return 44; }
+
+- (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    [t deselectRowAtIndexPath:ip animated:NO];
+    NSInteger idx = ip.row;
+    void (^close)(void) = _onClose;
+    void (^pick)(NSInteger) = _onPick;
+    if (close) close();
+    if (pick) pick(idx);
+}
+
+@end
+
 #pragma mark - 卡片基座
 
 static UIView *LLLCardDim(UIView *host) {
@@ -270,7 +315,7 @@ void LLLShowList(NSString *title,
             UIView *host = win.rootViewController.view;
 
             CGFloat w = MIN(380, host.bounds.size.width - 40);
-            CGFloat maxH = MIN(460, host.bounds.size.height - 140);
+            CGFloat maxH = MIN(560, host.bounds.size.height - 120);
             __block UIView *card = LLLNewCard(w);
 
             CGFloat y = 16;
@@ -294,35 +339,31 @@ void LLLShowList(NSString *title,
                 y += 22;
             }
 
-            UIScrollView *sv = [[UIScrollView alloc] initWithFrame:CGRectMake(0, y, w, 0)];
-            [card addSubview:sv];
+            // 懒加载表格：几千条也不卡
+            CGFloat tableH = MIN(maxH - y - 68, MAX(80, (CGFloat)items.count * 44.0));
+            UITableView *tv = [[UITableView alloc] initWithFrame:CGRectMake(10, y, w - 20, tableH)
+                                                           style:UITableViewStylePlain];
+            tv.backgroundColor = UIColor.clearColor;
+            tv.separatorStyle = UITableViewCellSeparatorStyleNone;
+            tv.showsVerticalScrollIndicator = YES;
+            tv.indicatorStyle = UIScrollViewIndicatorStyleWhite;
 
-            CGFloat rowH = 46, cy = 0;
-            for (NSUInteger i = 0; i < items.count; i++) {
-                UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-                b.frame = CGRectMake(12, cy, w - 24, rowH - 4);
-                b.backgroundColor = [UIColor colorWithWhite:1 alpha:0.06];
-                b.layer.cornerRadius = 10;
-                b.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-                b.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 14);
-                [b setTitle:items[i] forState:UIControlStateNormal];
-                [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-                b.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
-                b.titleLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
-                NSInteger idx = (NSInteger)i;
-                [b lll_onTap:^{
-                    UIView *c = card;
-                    LLLDismissAnimated(c);
-                    if (cb) cb(idx);
-                }];
-                [sv addSubview:b];
-                cy += rowH;
-            }
+            LLLListSheet *ds2 = [LLLListSheet new];
+            ds2.items = items;
+            ds2.onPick = cb;
+            __block UIView *weakCard = card;
+            ds2.onClose = ^{
+                UIView *c = weakCard;
+                if (c) LLLDismissAnimated(c);
+            };
+            tv.dataSource = ds2;
+            tv.delegate = ds2;
+            [card addSubview:tv];
 
-            CGFloat listH = MIN(maxH - y - 70, cy);
-            sv.contentSize = CGSizeMake(w, cy);
-            sv.frame = CGRectMake(0, y, w, MAX(80, listH));
-            y += sv.frame.size.height + 10;
+            // 数据源必须被持有，否则会立刻释放
+            objc_setAssociatedObject(card, "bbhj.listds", ds2, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+            y += tableH + 10;
 
             UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
             cancel.frame = CGRectMake(14, y, w - 28, 44);

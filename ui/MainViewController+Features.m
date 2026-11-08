@@ -439,7 +439,7 @@ static void (^gSearchClose)(void) = nil;
                 return;
             }
             // 列表一次最多渲染 300 条，否则上千个 UIButton 会把主线程干死
-            NSUInteger limit = MIN(songs.count, (NSUInteger)300);
+            NSUInteger limit = MIN(songs.count, (NSUInteger)5000);
             NSMutableArray *titles = [NSMutableArray arrayWithCapacity:limit];
             for (NSUInteger i = 0; i < limit; i++) {
                 NSDictionary *sg = songs[i];

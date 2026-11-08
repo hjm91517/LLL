@@ -30,6 +30,10 @@ static NSString * const kUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 l
 - (void)getJSON:(NSString *)path
          params:(NSDictionary<NSString *, NSString *> *)params
            done:(void (^)(id json, NSError *err))done;
+- (void)getJSON:(NSString *)path
+         params:(NSDictionary<NSString *, NSString *> *)params
+          retry:(NSInteger)retry
+           done:(void (^)(id json, NSError *err))done;
 @end
 
 @implementation LLLCloudMusic
@@ -73,6 +77,13 @@ static NSString * const kUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 l
 - (void)getJSON:(NSString *)path
          params:(NSDictionary<NSString *, NSString *> *)params
            done:(void (^)(id json, NSError *err))done {
+    [self getJSON:path params:params retry:2 done:done];
+}
+
+- (void)getJSON:(NSString *)path
+         params:(NSDictionary<NSString *, NSString *> *)params
+          retry:(NSInteger)retry
+           done:(void (^)(id json, NSError *err))done {
     NSMutableString *url = [NSMutableString stringWithFormat:@"%@%@", kBase, path];
     if (params.count) {
         [url appendString:@"?"];
@@ -95,11 +106,35 @@ static NSString * const kUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 l
     [req setValue:kUserAgent forHTTPHeaderField:@"User-Agent"];
     [req setValue:kBase forHTTPHeaderField:@"Referer"];
 
+    __weak typeof(self) w = self;
     [[_session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
-        if (err) { if (done) done(nil, err); return; }
-        if (!data) { if (done) done(nil, nil); return; }
+        __strong typeof(w) s = w;
+        if (!s) return;
+
+        if (err || !data) {
+            if (retry > 0) {
+                NSTimeInterval wait = (retry == 2) ? 1.0 : 2.0;
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(wait * NSEC_PER_SEC)),
+                               dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+                    __strong typeof(w) s2 = w;
+                    if (s2) [s2 getJSON:path params:params retry:retry - 1 done:done];
+                });
+                return;
+            }
+            if (done) done(nil, err);
+            return;
+        }
+
         NSError *je = nil;
         id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
+        if (!obj && retry > 0) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                           dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+                __strong typeof(w) s2 = w;
+                if (s2) [s2 getJSON:path params:params retry:retry - 1 done:done];
+            });
+            return;
+        }
         if (done) done(obj, je);
     }] resume];
 }
