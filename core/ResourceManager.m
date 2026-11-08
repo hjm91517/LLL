@@ -696,10 +696,9 @@ static NSUInteger lllCountFiles(NSString *dir) {
         id j = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
 
         NSFileManager *fm = [NSFileManager defaultManager];
-        NSUInteger restored = 0, removed = 0, total = 0, skipped = 0;
+        NSUInteger restored = 0, removed = 0, skipped = 0;
 
         if ([j isKindOfClass:[NSArray class]]) {
-            total = [(NSArray *)j count];
             for (NSDictionary *e in (NSArray *)j) {
                 if (![e isKindOfClass:[NSDictionary class]]) continue;
                 NSString *target = e[@"target"];
