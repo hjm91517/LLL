@@ -507,7 +507,7 @@ static void (^gSearchClose)(void) = nil;
     __weak typeof(self) w = self;
     [self confirm:@"确认清理" msg:@"清空目标目录，保留 pack_manifest.json" dest:YES cb:^{
         [MaterialHUD show:@"清理中..." inView:self.view];
-        [ResourceManager cleanTarget:^(BOOL ok, NSUInteger restored, NSUInteger removed, NSUInteger total) {
+        [ResourceManager cleanTarget:^(BOOL ok, NSUInteger restored, NSUInteger removed, NSUInteger skipped) {
             [MaterialHUD dismiss];
             __strong typeof(w) s = w;
             NSString *m = [NSString stringWithFormat:@"还原 %lu，删除 %lu，跳过 %lu",
