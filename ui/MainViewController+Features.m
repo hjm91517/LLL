@@ -510,8 +510,8 @@ static void (^gSearchClose)(void) = nil;
         [ResourceManager cleanTarget:^(BOOL ok, NSUInteger restored, NSUInteger removed, NSUInteger total) {
             [MaterialHUD dismiss];
             __strong typeof(w) s = w;
-            NSString *m = [NSString stringWithFormat:@"账本 %lu 条：还原 %lu，删除 %lu",
-                           (unsigned long)total, (unsigned long)restored, (unsigned long)removed];
+            NSString *m = [NSString stringWithFormat:@"还原 %lu，删除 %lu，跳过 %lu",
+                           (unsigned long)restored, (unsigned long)removed, (unsigned long)skipped];
             [s showAlert:@"完成" msg:m];
             ShowToast(m,1.5,YES,!ok);
             if (ok) PlayHaptic(YES);

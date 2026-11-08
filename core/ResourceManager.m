@@ -242,12 +242,15 @@ static void LLLJournalNote(NSString *dst) {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *bak = @"";
 
-    if ([fm fileExistsAtPath:dst]) {
+    BOOL existed = [fm fileExistsAtPath:dst];
+
+    if (existed) {
         NSDictionary *attr = [fm attributesOfItemAtPath:dst error:nil];
         unsigned long long sz = attr ? [attr[NSFileSize] unsignedLongLongValue] : 0;
         if (sz > 2ULL * 1024 * 1024) {          // 超过 2MB 不备份，避免拖慢注入
             lllLog(@"跳过大文件备份: %@", dst.lastPathComponent);
-            [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel, @"bak": @"" }];
+            [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel,
+                                          @"bak": @"", @"new": @NO }];
             if (!sJournaledRels) sJournaledRels = [NSMutableSet set];
             [sJournaledRels addObject:rel];
             return;
@@ -262,7 +265,8 @@ static void LLLJournalNote(NSString *dst) {
         }
     }
 
-    [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel, @"bak": bak }];
+    [sJournalEntries addObject:@{ @"target": sJournalRoot, @"rel": rel,
+                                  @"bak": bak, @"new": @(!existed) }];
     if (!sJournaledRels) sJournaledRels = [NSMutableSet set];
     [sJournaledRels addObject:rel];
 }
@@ -559,7 +563,9 @@ static NSUInteger lllCountFiles(NSString *dir) {
                 NSUInteger filled = 0;
                 for (NSString *r in rels) {
                     if ([sJournaledRels containsObject:r]) continue;
-                    [sJournalEntries addObject:@{ @"target": t, @"rel": r, @"bak": @"" }];
+                    // 补记的只是「路径存在过」，没法区分是不是游戏原文件 → 清理时一律不碰
+                    [sJournalEntries addObject:@{ @"target": t, @"rel": r,
+                                                  @"bak": @"", @"new": @NO }];
                     filled++;
                 }
                 if (filled > 0) lllLog(@"   补记账 %lu 条", (unsigned long)filled);
@@ -690,7 +696,7 @@ static NSUInteger lllCountFiles(NSString *dir) {
         id j = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
 
         NSFileManager *fm = [NSFileManager defaultManager];
-        NSUInteger restored = 0, removed = 0, total = 0;
+        NSUInteger restored = 0, removed = 0, total = 0, skipped = 0;
 
         if ([j isKindOfClass:[NSArray class]]) {
             total = [(NSArray *)j count];
@@ -703,16 +709,22 @@ static NSUInteger lllCountFiles(NSString *dir) {
                 if (![rel isKindOfClass:[NSString class]] || !rel.length) continue;
 
                 NSString *dst = [target stringByAppendingPathComponent:rel];
+                BOOL isNew = [e[@"new"] boolValue];
 
                 if ([bak isKindOfClass:[NSString class]] && bak.length) {
+                    // 有备份 → 原样还原
                     NSString *src = [LLLBackupRoot() stringByAppendingPathComponent:bak];
                     if ([fm fileExistsAtPath:src]) {
                         [fm removeItemAtPath:dst error:nil];
                         ensureDir(dst.stringByDeletingLastPathComponent);
                         if ([fm copyItemAtPath:src toPath:dst error:nil]) restored++;
                     }
-                } else {
+                } else if (isNew) {
+                    // 我们新建的 → 删掉
                     if ([fm removeItemAtPath:dst error:nil]) removed++;
+                } else {
+                    // 原来就存在、又没有备份 → 绝对不动，宁可残留也不误删游戏资源
+                    skipped++;
                 }
             }
         }
@@ -720,9 +732,9 @@ static NSUInteger lllCountFiles(NSString *dir) {
         [fm removeItemAtPath:p error:nil];
         [fm removeItemAtPath:LLLBackupRoot() error:nil];
 
-        lllLog(@"清理目标: 还原 %lu 个, 删除 %lu 个", (unsigned long)restored, (unsigned long)removed);
+        lllLog(@"清理目标: 还原 %lu, 删除 %lu, 跳过 %lu", (unsigned long)restored, (unsigned long)removed, (unsigned long)skipped);
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (cb) cb(YES, restored, removed, total);
+            if (cb) cb(YES, restored, removed, skipped);
         });
     });
 }
