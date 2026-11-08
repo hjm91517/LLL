@@ -1,9 +1,9 @@
-Package: com.yunluo.lll
-Name: LLL
-Version: 26.2.4.1
+Package: com.bbhj.online
+Name: bbhj online
+Version: 1.0
 Architecture: iphoneos-arm
-Description: 材质包注入 / 打击特效 / 音乐盒 / 悬浮球
-Maintainer: yunluo
-Author: yunluo
+Description: bbhj online 资源注入器
+Maintainer: bbhj
+Author: bbhj
 Section: Tweaks
 Depends: mobilesubstrate

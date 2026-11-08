@@ -543,10 +543,15 @@ static NSUInteger lllCountFiles(NSString *dir) {
             BOOL any = NO;
 
             for (NSString *t in targets) {
-                // 开一本新账
-                sJournalRoot = t;
-                sJournalEntries = [NSMutableArray array];
-                sJournaledRels = [NSMutableSet set];
+                // 开一本新账（重复加载时不开，免得两份 dylib 互相覆盖）
+                if (!gLLLDuplicateLoad) {
+                    sJournalRoot = t;
+                    sJournalEntries = [NSMutableArray array];
+                    sJournaledRels = [NSMutableSet set];
+                } else {
+                    sJournalRoot = nil;
+                    sJournalEntries = nil;
+                }
 
                 lllEnsurePackManifestAt(t);
                 BOOL r = mergeDir(srcRoot, t);
@@ -696,7 +701,7 @@ static NSUInteger lllCountFiles(NSString *dir) {
         id j = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
 
         NSFileManager *fm = [NSFileManager defaultManager];
-        NSUInteger restored = 0, removed = 0, skipped = 0;
+        NSUInteger restored = 0, removed = 0, skipped = 0, failed = 0;
 
         if ([j isKindOfClass:[NSArray class]]) {
             for (NSDictionary *e in (NSArray *)j) {
@@ -717,6 +722,9 @@ static NSUInteger lllCountFiles(NSString *dir) {
                         [fm removeItemAtPath:dst error:nil];
                         ensureDir(dst.stringByDeletingLastPathComponent);
                         if ([fm copyItemAtPath:src toPath:dst error:nil]) restored++;
+                        else failed++;
+                    } else {
+                        failed++;
                     }
                 } else if (isNew) {
                     // 我们新建的 → 删掉
@@ -729,7 +737,9 @@ static NSUInteger lllCountFiles(NSString *dir) {
         }
 
         [fm removeItemAtPath:p error:nil];
-        [fm removeItemAtPath:LLLBackupRoot() error:nil];
+        // 有还原失败就保留备份目录，下次还能再试一次
+        if (failed == 0) [fm removeItemAtPath:LLLBackupRoot() error:nil];
+        else lllLog(@"有 %lu 个还原失败，备份已保留", (unsigned long)failed);
 
         lllLog(@"清理目标: 还原 %lu, 删除 %lu, 跳过 %lu", (unsigned long)restored, (unsigned long)removed, (unsigned long)skipped);
         dispatch_async(dispatch_get_main_queue(), ^{

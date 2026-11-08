@@ -1,5 +1,5 @@
 #
-# LLL - 材质包注入
+# bbhj online - 资源注入器
 # Theos 工程定义
 #
 # 注意：文件名必须是 Makefile（不是 Makefile.make），否则 make 根本读不到。
@@ -17,9 +17,9 @@ ARCHS ?= arm64 arm64e
 
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = MaterialPackManager
+TWEAK_NAME = bbhj_online
 
-MaterialPackManager_FILES = \
+bbhj_online_FILES = \
     core/BaseComponents.m \
     core/ResourceManager.m \
     core/EffectInjector.m \
@@ -34,9 +34,9 @@ MaterialPackManager_FILES = \
 
 # ImageIO 必须显式链接：BaseComponents.m 用 CGImageSourceCreateWithURL 做缩略图，
 # 不写 -framework ImageIO 在真机上会走不到，链接期也容易莫名 undefined。
-MaterialPackManager_FRAMEWORKS = UIKit Foundation AVFoundation PhotosUI ImageIO CoreImage CoreGraphics
+bbhj_online_FRAMEWORKS = UIKit Foundation AVFoundation PhotosUI ImageIO CoreImage CoreGraphics
 
-MaterialPackManager_CFLAGS = \
+bbhj_online_CFLAGS = \
     -fobjc-arc \
     -fmodules \
     -O2 \
@@ -48,6 +48,6 @@ MaterialPackManager_CFLAGS = \
     -I. -I./core -I./overlay -I./ui
 
 # ___isPlatformVersionAtLeast 是 @available 展开出来的符号，老设备上要允许未定义
-MaterialPackManager_LDFLAGS = -Wl,-U,___isPlatformVersionAtLeast
+bbhj_online_LDFLAGS = -Wl,-U,___isPlatformVersionAtLeast
 
 include $(THEOS_MAKE_PATH)/tweak.mk

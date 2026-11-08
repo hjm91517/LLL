@@ -173,6 +173,15 @@ jobs:
             otool -L "$f" | head -20 || true
           done
 
+          # 给 dylib 带上版本号
+          VER=$(sed -n 's/.*kPluginVersion @"\([^"]*\)".*/\1/p' core/PluginInfo.h | head -1)
+          [ -z "$VER" ] && VER=0.0
+          for f in dist/*.dylib; do
+            [ -e "$f" ] || continue
+            cp -f "$f" "dist/bbhj-online-$VER.dylib"
+          done
+          echo "版本: $VER"
+
           find . -name '*.deb' -not -path './.git/*' -exec cp -f {} dist/ \; 2>/dev/null || true
 
           # 顺带打一份 zip，方便一口气拖进设备

@@ -28,6 +28,7 @@
 INCBIN(ErrorImage, "cw.png");
 INCBIN(FloatIcon, "png.png");
 
+extern BOOL gLLLDuplicateLoad;
 extern CGFloat const kIconSize;
 extern NSString * const kQueueNamesKey, * const kQueuePathsKey,
                 * const kPluginQueueNamesKey, * const kPluginQueuePathsKey;

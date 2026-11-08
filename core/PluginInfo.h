@@ -1,6 +1,7 @@
-#define kPluginVersion @"27.9.0"
+#define kPluginVersion @"1.0"
 
 #define kPluginFeatures @[ \
+    @"• bbhj online 1.0", \
     @"• 材质包注入与管理（增量注入 / 秒级跳过未变文件）", \
     @"• 3.10 适配：自建资源包 + 全局清单注册 + 旧补丁目录镜像", \
     @"• 个人存档：MCP 插件注入到 behavior_packs 任选目录", \

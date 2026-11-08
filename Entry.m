@@ -216,8 +216,9 @@ static void LLLInit(void) {
             if (LLLFileExists(@"LLL_OFF")) return;
 
             if (LLLIsDuplicateDylib()) {
-                // 只记日志，不退出 —— 退出会导致用户删干净后反而不显示
-                lllLog(@"!! 检测到重复加载的 MaterialPackManager，悬浮球会去重");
+                // 只记日志，不退出；但标记一下，注入时跳过记账，避免两份账本互相覆盖
+                gLLLDuplicateLoad = YES;
+                lllLog(@"!! 检测到重复加载的 bbhj online，本次注入不记账");
             }
 
             LLLLog(@"===== LLL %@ [%s] 启动 =====", kPluginVersion, __DATE__);

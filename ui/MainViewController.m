@@ -1083,7 +1083,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 }
 
 - (void)showMusicTab {
-    lllLog(@"进入音乐页: card=%@ cloudBtn=%@", _playerCard, _playerCloudBtn);
+    lllLog(@"进入音乐页 card=%@ btn=%@", _playerCard, _playerCloudBtn);
     [self setHeader:@"音乐盒" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
     [self reloadMusicData];
     [self startProgressTimer];

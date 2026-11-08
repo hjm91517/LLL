@@ -200,6 +200,8 @@
 }
 @end
 
+BOOL gLLLDuplicateLoad = NO;
+
 CGFloat const kIconSize = 56;
 NSString * const kQueueNamesKey = @"mp_qn", * const kQueuePathsKey = @"mp_qp",
          * const kPluginQueueNamesKey = @"pl_qn", * const kPluginQueuePathsKey = @"pl_qp";
