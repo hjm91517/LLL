@@ -484,8 +484,10 @@ NSArray<NSString*>* injectionTargetDirs(void) {
     // 默认只打两个目标：自己的包 + v_ui 热更包。
     // 10 个目标意味着 4 万多次文件拷贝，游戏边跑边被写，必卡。
     // 想要全铺，把 NSUserDefaults 里的 LLL.multiTarget 设成 YES。
+    // 默认全铺。之前为了省时间砍到 2 个目标，结果材质又不生效了 ——
+    // 说明真正被游戏读取的不止 v_ui 那一条。现在 MD5 有缓存、账本批量落盘，全铺也不慢。
     NSNumber *multi = [[NSUserDefaults standardUserDefaults] objectForKey:@"LLL.multiTarget"];
-    BOOL doMulti = multi ? multi.boolValue : NO;
+    BOOL doMulti = multi ? multi.boolValue : YES;
     if (doMulti) return all;
 
     NSMutableArray *slim = [NSMutableArray array];

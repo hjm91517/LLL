@@ -1088,6 +1088,17 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [self reloadMusicData];
     [self startProgressTimer];
     [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
+
+    // 切换之后再记一次，这次是真实布局状态
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        lllLog(@"音乐页布局 card=%@ hidden=%d h=%.0f | table=%@ hidden=%d h=%.0f | 曲目=%lu",
+               NSStringFromCGRect(self.playerCard.frame), self.playerCard.hidden,
+               self.playerHeight ? self.playerHeight.constant : -1,
+               NSStringFromCGRect(self.musict.frame), self.musict.hidden,
+               self.musict.bounds.size.height,
+               (unsigned long)self.musicNames.count);
+    });
 }
 
 - (void)showSettingsTab {
