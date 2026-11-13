@@ -2,7 +2,7 @@ name: Build Dylib
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, v2 ]
     tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
@@ -22,6 +22,8 @@ on:
 
 permissions:
   contents: write
+  actions: read
+  pull-requests: write
 
 env:
   THEOS: ${{ github.workspace }}/.theos
@@ -35,14 +37,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           fetch-depth: 0
-
-      - name: Apply v2 source patch
-        run: |
-          if [ -f tools/apply_v2.py ]; then python3 tools/apply_v2.py; fi
-          for f in tools/fix*.py; do [ -e "$f" ] && python3 "$f"; done
-          ls ui/LLLCloudLogin.m overlay/LLLMusicIsland.m >/dev/null
 
       - name: Print runner info
         run: |
@@ -73,7 +69,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.theos
-          key: theos-${{ runner.os }}-${{ runner.arch }}-v4
+          key: theos-${{ runner.os }}-${{ runner.arch }}-v5
 
       - name: Install Theos
         if: steps.theos-cache.outputs.cache-hit != 'true'
@@ -90,11 +86,9 @@ jobs:
       - name: Precheck project layout
         run: |
           set -euo pipefail
-          echo "--- 根目录 ---"
           ls -la
           test -f Makefile || { echo "!! 没有 Makefile，无法构建"; exit 1; }
-          echo "--- Makefile 头部 ---"
-          head -n 20 Makefile
+          head -n 25 Makefile
 
       - name: Build (Theos)
         run: |
@@ -117,72 +111,32 @@ jobs:
       - name: Collect & sign
         run: |
           set -uo pipefail
+          rm -rf dist
           mkdir -p dist
 
           ENT=""
           if [ -f ".github/entitlements.plist" ]; then ENT=".github/entitlements.plist"; fi
 
-          echo "--- 候选 dylib ---"
-          find . -name '*.dylib' \
-               -not -path './dist/*' -not -path './.git/*' -not -path '*dSYM*' \
-               | sort > /tmp/all_dylibs.txt || true
-          cat /tmp/all_dylibs.txt
-
-          : > /tmp/picked.txt
-          while IFS= read -r f; do
-            [ -z "$f" ] && continue
-            b=$(basename "$f")
-            if grep -qxF "$b" /tmp/picked.txt; then continue; fi
-            echo "$b" >> /tmp/picked.txt
-
-            best="$f"; bestn=0
-            for c in $(grep "/$b\$" /tmp/all_dylibs.txt); do
-              file "$c" | grep -q 'Mach-O' || continue
-              n=$(lipo -archs "$c" 2>/dev/null | wc -w | tr -d ' ')
-              if [ -n "$n" ] && [ "$n" -gt "$bestn" ]; then bestn=$n; best="$c"; fi
-            done
-
-            cp -f "$best" "dist/$b"
-            echo "  $b  <=  $best  (archs=$bestn)"
-          done < /tmp/all_dylibs.txt
+          best=$(ls -1 .theos/obj/bbhj_online.dylib .theos/obj/*/bbhj_online.dylib 2>/dev/null | head -1)
+          if [ -z "$best" ]; then
+            echo "!! 没找到 bbhj_online.dylib"
+            ls -R .theos/obj | head -40
+            exit 1
+          fi
+          cp -f "$best" "dist/bbhj_online.dylib"
 
           for f in dist/*.dylib; do
             [ -e "$f" ] || continue
-            b=$(basename "$f")
-            n=$(lipo -archs "$f" 2>/dev/null | wc -w | tr -d ' ')
-            if [ -n "$n" ] && [ "$n" -le 1 ]; then
-              slices=$(ls .theos/obj/*/"$b" 2>/dev/null || true)
-              if [ -n "$slices" ]; then
-                if lipo -create -output "$f" $slices 2>/dev/null; then
-                  echo "  lipo 合并 $b -> $(lipo -archs "$f")"
-                fi
-              fi
-            fi
-          done
-
-          echo "--- 签名 ---"
-          for f in dist/*.dylib; do
-            [ -e "$f" ] || continue
-            if [ -n "$ENT" ]; then ldid -S"$ENT" "$f"; else ldid -S "$f"; fi
-            echo "== $f"
             lipo -info "$f" || true
-            otool -L "$f" | head -20 || true
+            if [ -n "$ENT" ]; then ldid -S"$ENT" "$f"; else ldid -S "$f"; fi
           done
 
           VER=$(sed -n 's/.*kPluginVersion @"\([^"]*\)".*/\1/p' core/PluginInfo.h | head -1)
           [ -z "$VER" ] && VER=0.0
-          for f in dist/*.dylib; do
-            [ -e "$f" ] || continue
-            cp -f "$f" "dist/bbhj-online-$VER.dylib"
-          done
+          cp -f dist/bbhj_online.dylib "dist/bbhj-online-$VER.dylib"
           echo "版本: $VER"
 
-          find . -name '*.deb' -not -path './.git/*' -exec cp -f {} dist/ \; 2>/dev/null || true
-
-          if [ -n "$(ls -A dist)" ]; then
-            ( cd dist && zip -qry /tmp/LLL-bundle.zip . )
-            cp -f /tmp/LLL-bundle.zip "dist/$(basename $GITHUB_REPOSITORY)-dylib.zip"
-          fi
+          ( cd dist && zip -qry "LLL-$VER-dylib.zip" . )
 
           echo "--- dist ---"
           ls -la dist
@@ -191,23 +145,10 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dylib-${{ github.sha }}
+          name: bbhj-online-2.0-universal
           path: dist/
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Persist patched sources
-        if: success() && github.event_name == 'pull_request'
-        run: |
-          git config user.name  "lll-ci"
-          git config user.email "lll-ci@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "没有源码变更"
-          else
-            git commit -m "ci: materialize v2 sources [skip ci]"
-            git push origin "HEAD:${{ github.head_ref }}" || true
-          fi
+          retention-days: 90
 
       - name: Release on tag
         if: startsWith(github.ref, 'refs/tags/v')
@@ -222,13 +163,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          gh run view "${{ github.run_id }}" --log-failed > /tmp/fail.log 2>&1 || \
-            gh run view "${{ github.run_id }}" --log > /tmp/fail.log 2>&1 || true
+          gh run view "${{ github.run_id }}" --repo "${{ github.repository }}" --log-failed > /tmp/fail.log 2>&1 || \
+            gh run view "${{ github.run_id }}" --repo "${{ github.repository }}" --log > /tmp/fail.log 2>&1 || true
           {
             echo '```'
             grep -nE "error:|fatal error|undefined symbol|No such file" /tmp/fail.log | head -40 || true
             echo '--- tail ---'
-            tail -30 /tmp/fail.log || true
+            tail -25 /tmp/fail.log || true
             echo '```'
           } > /tmp/body.md
-          gh pr comment "${{ github.event.pull_request.number }}" -R "${{ github.repository }}" --body-file /tmp/body.md || true
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file /tmp/body.md || true
