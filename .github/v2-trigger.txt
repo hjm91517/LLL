@@ -1,1 +1,1 @@
-trigger v2 build diagnostics
+trigger v2 build diagnostics 2
