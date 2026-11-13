@@ -45,7 +45,6 @@ jobs:
           echo "runner OS  : $RUNNER_OS"
           echo "runner arch: $RUNNER_ARCH"
           sw_vers
-          xcodebuild -version || true
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -62,7 +61,6 @@ jobs:
         run: |
           brew update >/dev/null 2>&1 || true
           brew install ldid xz dpkg || brew upgrade ldid xz dpkg
-          ldid -v 2>&1 | head -n 2 || true
 
       - name: Cache Theos + SDKs
         id: theos-cache
@@ -81,14 +79,6 @@ jobs:
           unzip -q /tmp/sdks.zip -d /tmp
           cp -R /tmp/sdks-master/iPhoneOS16.5.sdk "$THEOS/sdks/"
           test -f "$THEOS/makefiles/common.mk"
-          ls -1 "$THEOS/sdks"
-
-      - name: Precheck project layout
-        run: |
-          set -euo pipefail
-          ls -la
-          test -f Makefile || { echo "!! 没有 Makefile，无法构建"; exit 1; }
-          head -n 25 Makefile
 
       - name: Build (Theos)
         run: |
@@ -98,15 +88,12 @@ jobs:
             rootless) EXTRA="THEOS_PACKAGE_SCHEME=rootless" ;;
             roothide) EXTRA="THEOS_PACKAGE_SCHEME=roothide" ;;
           esac
-
           make clean || true
           make all \
             FINALPACKAGE=1 DEBUG=0 \
             ARCHS="$ARCHS" \
             TARGET="iphone:clang:latest:$IOS_DT" \
             $EXTRA
-
-          echo "--- 打包 deb 已跳过（直接交付 dylib）---"
 
       - name: Collect & sign
         run: |
@@ -120,7 +107,6 @@ jobs:
           best=$(ls -1 .theos/obj/bbhj_online.dylib .theos/obj/*/bbhj_online.dylib 2>/dev/null | head -1)
           if [ -z "$best" ]; then
             echo "!! 没找到 bbhj_online.dylib"
-            ls -R .theos/obj | head -40
             exit 1
           fi
           cp -f "$best" "dist/bbhj_online.dylib"
@@ -137,10 +123,7 @@ jobs:
           echo "版本: $VER"
 
           ( cd dist && zip -qry "LLL-$VER-dylib.zip" . )
-
-          echo "--- dist ---"
           ls -la dist
-          test -n "$(ls -A dist | grep '\.dylib$')" || { echo "!! 一个 dylib 都没生成"; exit 1; }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -149,6 +132,25 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 90
+
+      - name: Publish dylib into repo
+        if: success()
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts
+          cp -f dist/bbhj_online.dylib artifacts/bbhj_online.dylib
+          cp -f dist/bbhj-online-*.dylib artifacts/ 2>/dev/null || true
+          cp -f dist/LLL-*-dylib.zip artifacts/ 2>/dev/null || true
+          git config user.name  "lll-ci"
+          git config user.email "lll-ci@users.noreply.github.com"
+          git add -f artifacts
+          if git diff --cached --quiet; then
+            echo "产物无变化"
+          else
+            git commit -m "artifacts: bbhj-online ${{ github.sha }} [skip ci]"
+            git push origin "HEAD:${{ github.ref_name }}" || true
+          fi
+          ls -la artifacts
 
       - name: Release on tag
         if: startsWith(github.ref, 'refs/tags/v')
