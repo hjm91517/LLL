@@ -123,16 +123,16 @@ void LLLShowLaunch(void) {
         @try {
             if (gLCard) return;
 
-            UIWindow *win = LLCardWindow();
+            UIWindow *win = LLLCardWindow();
             win.hidden = NO;
             UIView *host = win.rootViewController.view;
             if (!host) return;
 
-            UIView *dim = LLCardDim(host);
+            UIView *dim = LLLCardDim(host);
             dim.tag = 99131;
             [host addSubview:dim];
 
-            UIView *card = LLCardBox(272);
+            UIView *card = LLLCardBox(272);
             card.tag = 99132;
             card.frame = CGRectMake(0, 0, 272, 292);
             card.alpha = 0;
@@ -248,15 +248,15 @@ void LLLProgressShow(NSString *title) {
                 return;
             }
 
-            UIWindow *win = LLCardWindow();
+            UIWindow *win = LLLCardWindow();
             win.hidden = NO;
             UIView *host = win.rootViewController.view;
 
-            UIView *dim = LLCardDim(host);
+            UIView *dim = LLLCardDim(host);
             dim.tag = 99141;
             [host addSubview:dim];
 
-            UIView *card = LLCardBox(300);
+            UIView *card = LLLCardBox(300);
             card.tag = 99142;
             card.frame = CGRectMake(0, 0, 300, 356);
             [host addSubview:card];

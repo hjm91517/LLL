@@ -11,6 +11,11 @@
 #import "BaseComponents.h"
 #import <AVFoundation/AVFoundation.h>
 
+@interface MainViewController (LLLCloudPrivate)
+- (void)applyVolume;
+- (void)startProgressTimer;
+@end
+
 static void (^gCloseLoginCard)(void) = nil;
 static NSArray<NSDictionary *> *gCloudSongs = nil;
 static NSInteger gCloudIndex = -1;

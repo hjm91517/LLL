@@ -38,7 +38,7 @@ static NSString *LLLMD5Hex(NSString *s) {
     return r;
 }
 
-static NSString *LLLHex(NSData *d) {
+static NSString *LLLHexStr(NSData *d) {
     const uint8_t *p = d.bytes;
     NSMutableString *s = [NSMutableString stringWithCapacity:d.length * 2];
     for (NSUInteger i = 0; i < d.length; i++) [s appendFormat:@"%02x", p[i]];
@@ -165,7 +165,7 @@ static NSString *LLLEncSecKey(NSString *secret) {
         lllLog(@"网易云 encSecKey 失败: %@", err);
         return nil;
     }
-    NSString *hex = LLLHex((__bridge NSData *)out);
+    NSString *hex = LLLHexStr((__bridge NSData *)out);
     CFRelease(out);
     return hex;
 }
