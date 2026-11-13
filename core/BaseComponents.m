@@ -235,6 +235,24 @@ static UIImage* loadImg(const void *d, size_t s, UIColor *fb) {
 UIImage* errorImage(void) { return loadImg(cwErrorImage_data, cwErrorImage_size, UIColor.systemRedColor); }
 UIImage* floatIcon(void)  { return loadImg(cwFloatIcon_data, cwFloatIcon_size, UIColor.systemBlueColor); }
 
+// 自定义悬浮球图标：Documents/bbhj_icon.png（改了自动重载）
+UIImage* customFloatIcon(void) {
+    static UIImage *cached;
+    static NSTimeInterval cachedMtime;
+    static dispatch_once_t once;
+
+    NSString *path = [docsPath() stringByAppendingPathComponent:@"bbhj_icon.png"];
+    NSDictionary *attr = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+    if (!attr) { cached = nil; return nil; }
+
+    NSTimeInterval mtime = [attr[NSFileModificationDate] timeIntervalSince1970];
+    if (cached && mtime == cachedMtime) return cached;
+
+    cached = [UIImage imageWithContentsOfFile:path];
+    cachedMtime = mtime;
+    return cached;
+}
+
 NSString* docsPath(void) {
     return NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
 }

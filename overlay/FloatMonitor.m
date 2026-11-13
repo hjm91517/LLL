@@ -157,7 +157,11 @@ void toggleMainWindow(void) {
         _btn.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         _btn.layer.cornerRadius = kFloatingBallRadius;
         _btn.clipsToBounds = YES;
-        [_btn setImage:floatIcon() forState:UIControlStateNormal];
+        UIImage *custom = customFloatIcon();
+        [_btn setImage:(custom ?: floatIcon()) forState:UIControlStateNormal];
+        if (custom) {
+            _btn.imageView.contentMode = UIViewContentModeScaleAspectFill;
+        }
         _btn.imageView.contentMode = UIViewContentModeScaleAspectFill;
         _btn.backgroundColor = [UIColor colorWithWhite:0.15 alpha:0.85];
         _btn.layer.shadowColor = UIColor.blackColor.CGColor;

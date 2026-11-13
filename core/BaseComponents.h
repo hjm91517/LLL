@@ -36,6 +36,7 @@ extern NSString * const kQueueNamesKey, * const kQueuePathsKey,
 dispatch_queue_t g_fileQueue(void);
 UIImage* errorImage(void);
 UIImage* floatIcon(void);
+UIImage* customFloatIcon(void);
 UIImage* cachedIcon(NSString *path, BOOL hasIcon);
 
 NSString* docsPath(void);
