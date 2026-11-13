@@ -5,6 +5,8 @@
 #import "LLLAnim.h"
 #import "LLLUiKit.h"
 #import "LLLCloudMusic.h"
+#import "LLLNowPlaying.h"
+#import "LLLCloudLogin.h"
 #import "EffectInjector.h"
 #import "LLLMusicIsland.h"
 #import <objc/runtime.h>
@@ -180,14 +182,20 @@ static void (^gLLLCloseCloudCard)(void) = nil;
         }
     }
 
-    // 顶部灵动岛胶囊
+    // 顶部灵动岛：本地播放也走同一套状态
     if (self.isPlaying) {
         NSString *t = (self.currentMusicIndex >= 0 &&
                        self.currentMusicIndex < (NSInteger)self.musicNames.count)
                       ? self.musicNames[(NSUInteger)self.currentMusicIndex]
                       : (self.playerTitle.text ?: @"播放中");
+        LLLNowPlaying *np = [LLLNowPlaying shared];
+        double dur = self.audioPlayer ? self.audioPlayer.duration : 0;
+        double cur = self.audioPlayer ? self.audioPlayer.currentTime : 0;
+        if (![np.title isEqualToString:t]) [np beginTrack:t artist:@"本地音乐" artwork:nil duration:dur elapsed:cur];
+        else { [np updateElapsed:cur duration:dur]; [np setPlaying:YES]; }
         [LLLMusicIsland updateTitle:t playing:YES];
     } else {
+        [[LLLNowPlaying shared] setPlaying:NO];
         [LLLMusicIsland updateTitle:nil playing:NO];
     }
 
@@ -259,77 +267,6 @@ static void (^gLLLCloseCloudCard)(void) = nil;
     if (gLLLCloseCloudCard) { gLLLCloseCloudCard(); gLLLCloseCloudCard = nil; }
 }
 
-- (void)openCloudMusic {
-    LLLCloudMusic *cm = [LLLCloudMusic shared];
-    if (cm.loggedIn) {
-        LLLShowSheet(@"网易云音乐", cm.nickname.length ? cm.nickname : @"已登录",
-                     @[@"我喜欢的音乐", @"搜索音乐", @"退出登录"], YES,
-                     ^(NSInteger idx) {
-            if (idx == 0) [self showLikedSongs];
-            else if (idx == 1) [self searchCloudMusic];
-            else {
-                [[LLLCloudMusic shared] logout];
-                ShowToast(@"已退出登录", 1.5, YES, NO);
-            }
-        });
-        return;
-    }
-
-    __block UIImageView *qrView = nil;
-    __block UILabel *hint = nil;
-
-    LLLShowCustomCard(320, 520, ^(UIView *card, void (^close)(void)) {
-        gLLLCloseCloudCard = [close copy];
-        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
-        card.frame = CGRectMake(0, 0, w, 392);
-
-        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, w - 32, 24)];
-        t.text = @"网易云音乐 · 扫码登录";
-        t.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
-        t.textColor = UIColor.whiteColor;
-        t.textAlignment = NSTextAlignmentCenter;
-        [card addSubview:t];
-
-        qrView = [[UIImageView alloc] initWithFrame:CGRectMake((w - 200) / 2, 56, 200, 200)];
-        qrView.backgroundColor = UIColor.whiteColor;
-        qrView.layer.cornerRadius = 10;
-        qrView.clipsToBounds = YES;
-        qrView.contentMode = UIViewContentModeScaleAspectFit;
-        [card addSubview:qrView];
-
-        hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 268, w - 32, 18)];
-        hint.text = @"正在获取二维码…";
-        hint.font = [UIFont systemFontOfSize:12];
-        hint.textColor = [UIColor colorWithWhite:0.7 alpha:1];
-        hint.textAlignment = NSTextAlignmentCenter;
-        [card addSubview:hint];
-
-        UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
-        cancel.frame = CGRectMake(14, 300, w - 28, 44);
-        cancel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
-        cancel.layer.cornerRadius = 12;
-        [cancel setTitle:@"取消" forState:UIControlStateNormal];
-        [cancel setTitleColor:[UIColor colorWithWhite:0.78 alpha:1] forState:UIControlStateNormal];
-        cancel.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
-        [cancel addTarget:self action:@selector(dismissCloudCard) forControlEvents:UIControlEventTouchUpInside];
-        [card addSubview:cancel];
-    });
-
-    [cm startLoginWithQR:^(UIImage *qr, NSString *status) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (qr) qrView.image = qr;
-            if (status.length) hint.text = status;
-        });
-    } completion:^(BOOL ok, NSString *msg) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self dismissCloudCard];
-            ShowToast(msg.length ? msg : (ok ? @"登录成功" : @"登录失败"), 2.2, YES, !ok);
-            PlayHaptic(ok);
-            if (ok) [self showLikedSongs];
-        });
-    }];
-}
-
 static UITextField *gSearchField = nil;
 static void (^gSearchClose)(void) = nil;
 
@@ -398,6 +335,7 @@ static void (^gSearchClose)(void) = nil;
             for (NSDictionary *sg in songs) {
                 [titles addObject:[NSString stringWithFormat:@"%@ - %@", sg[@"name"], sg[@"artist"]]];
             }
+            [self setCloudQueue:songs];
             LLLShowList([NSString stringWithFormat:@"“%@” 的结果", kw],
                         [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count],
                         titles, ^(NSInteger idx) {
@@ -461,30 +399,10 @@ static void (^gSearchClose)(void) = nil;
                 ? [NSString stringWithFormat:@"共 %lu 首，先显示前 %lu 首", (unsigned long)songs.count, (unsigned long)limit]
                 : [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count];
 
+            [self setCloudQueue:songs];
             LLLShowList(@"我喜欢的音乐", msg, titles, ^(NSInteger idx) {
                 if (idx >= 0 && idx < (NSInteger)limit) [self playCloudSong:songs[(NSUInteger)idx]];
             });
-        });
-    }];
-}
-
-- (void)playCloudSong:(NSDictionary *)song {
-    NSNumber *sid = song[@"id"];
-    __weak typeof(self) w = self;
-    [[LLLCloudMusic shared] resolvePlayURL:sid done:^(NSURL *url, NSString *err) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(w) s = w;
-            if (!s) return;
-            if (!url) { ShowToast(err.length ? err : @"拿不到播放地址", 2.2, YES, YES); return; }
-            [s.cloudPlayer pause];
-            s.cloudPlayer = [AVPlayer playerWithURL:url];
-            [s applyVolume];
-            [s.cloudPlayer play];
-            [LLLMusicIsland updateTitle:(song[@"name"] ?: @"网易云") playing:YES];
-            if (s.playerTitle)  s.playerTitle.text  = song[@"name"] ?: @"网易云";
-            if (s.playerArtist) s.playerArtist.text = song[@"artist"] ?: @"网易云音乐";
-            [s startProgressTimer];
-            ShowToast([NSString stringWithFormat:@"播放: %@", song[@"name"]], 2, YES, NO);
         });
     }];
 }

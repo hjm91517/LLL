@@ -11,8 +11,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 启动动画（旧，未使用）
 void LLLShowSplash(void);
 
-/// 启动序列：标题滑入 + 滑动验证 + 初始化进度
+/// 启动序列：卡片 + 圆环进度（实现见 LLLLaunchCard.m）
 void LLLShowLaunch(void);
+
+/// 推进启动圆环；p >= 1 自动收起
+void LLLLaunchSetProgress(CGFloat p, NSString * _Nullable status);
 
 /// 通用弹层（底部卡片）。buttons 里每一项是一个按钮标题，回调给下标。
 void LLLShowSheet(NSString *title,

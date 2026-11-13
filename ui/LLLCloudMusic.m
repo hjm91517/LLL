@@ -1,17 +1,186 @@
 //
 //  LLLCloudMusic.m
 //
-//  走网易云网页版那套公开接口（unikey / client/login / nuser / playlist / outer url）。
-//  只做三件事：扫码登录、拉「我喜欢的音乐」、拿播放直链。
+//  接口分两类：
+//    1) 明文 api/*：扫码 unikey、搜索、歌单、取流 —— 直接 GET，带 Referer 就行
+//    2) weapi：手机号登录必须走加密（明文 /api/login/cellphone 现在返回 401 ENC）
+//       params = base64(AES128-CBC(json, 随机16位, iv=0102030405060708))
+//       encSecKey = hex(RSA_raw(reverse(随机16位))) —— 裸 RSA，所以走 SecKey 的 Raw 算法
 //
 
 #import "LLLCloudMusic.h"
 #import "BaseComponents.h"
 #import <CoreImage/CoreImage.h>
+#import <CommonCrypto/CommonDigest.h>
+#import <stdio.h>
+#import <stdlib.h>
+#import <CommonCrypto/CommonCryptor.h>
+#import <Security/Security.h>
 
-static NSString * const kBase      = @"https://music.163.com";
-static NSString * const kUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
-                                     @"AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+static NSString * const kBase = @"https://music.163.com";
+static NSString * const kUA   = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
+                                @"AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+static NSString * const kIV   = @"0102030405060708";
+static NSString * const kRsaN = @"00e0b509f6259df8642dbc35662901477df22677ec152b5ff68ace615bb7b7251523"
+                                @"ab17a876aea8a5aa76d2e417629ec4ee341f56135fccf695280104e0312ecbda92557c9387011"
+                                @"4af6c9d05c4f7f0c3685b7a46bee255932575cce10b424d813cfe4875d3e82047b97ddef52741"
+                                @"d546b8e289dc6935b3ece0462db0a22b8e7";
+static NSString * const kRsaE = @"010001";
+
+#pragma mark - 小工具
+
+static NSString *LLLMD5Hex(NSString *s) {
+    NSData *d = [s dataUsingEncoding:NSUTF8StringEncoding];
+    unsigned char out[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(d.bytes, (CC_LONG)d.length, out);
+    NSMutableString *r = [NSMutableString stringWithCapacity:32];
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) [r appendFormat:@"%02x", out[i]];
+    return r;
+}
+
+static NSString *LLLHexStr(NSData *d) {
+    const uint8_t *p = d.bytes;
+    NSMutableString *s = [NSMutableString stringWithCapacity:d.length * 2];
+    for (NSUInteger i = 0; i < d.length; i++) [s appendFormat:@"%02x", p[i]];
+    return s;
+}
+
+static NSData *LLLDataFromHex(NSString *hex) {
+    NSMutableData *d = [NSMutableData data];
+    NSUInteger n = hex.length / 2;
+    for (NSUInteger i = 0; i < n; i++) {
+        unsigned int b = 0;
+        sscanf([[hex substringWithRange:NSMakeRange(i * 2, 2)] UTF8String], "%x", &b);
+        uint8_t v = (uint8_t)b;
+        [d appendBytes:&v length:1];
+    }
+    return d;
+}
+
+static NSData *LLLAES128(NSData *plain, NSString *key) {
+    NSData *k = [key dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *iv = [kIV dataUsingEncoding:NSUTF8StringEncoding];
+    if (k.length != 16 || iv.length != 16) return nil;
+
+    size_t outLen = plain.length + kCCBlockSizeAES128;
+    void *out = malloc(outLen);
+    if (!out) return nil;
+    size_t moved = 0;
+
+    CCCryptorStatus st = CCCrypt(kCCEncrypt, kCCAlgorithmAES, kCCOptionPKCS7Padding,
+                                 k.bytes, kCCKeySizeAES128, iv.bytes,
+                                 plain.bytes, plain.length, out, outLen, &moved);
+    NSData *res = (st == kCCSuccess) ? [NSData dataWithBytes:out length:moved] : nil;
+    free(out);
+    return res;
+}
+
+static NSMutableData *LLLTLV(uint8_t tag, NSData *val) {
+    NSMutableData *d = [NSMutableData data];
+    [d appendBytes:&tag length:1];
+    NSUInteger n = val.length;
+    if (n < 0x80) {
+        uint8_t b = (uint8_t)n;
+        [d appendBytes:&b length:1];
+    } else if (n <= 0xFF) {
+        uint8_t b[2] = { 0x81, (uint8_t)n };
+        [d appendBytes:b length:2];
+    } else {
+        uint8_t b[3] = { 0x82, (uint8_t)(n >> 8), (uint8_t)(n & 0xFF) };
+        [d appendBytes:b length:3];
+    }
+    [d appendData:val];
+    return d;
+}
+
+static NSData *LLLDERInt(NSData *raw) {
+    NSUInteger i = 0;
+    const uint8_t *p = raw.bytes;
+    while (i + 1 < raw.length && p[i] == 0) i++;
+    NSMutableData *v = [NSMutableData dataWithBytes:p + i length:raw.length - i];
+    if (v.length && (((const uint8_t *)v.bytes)[0] & 0x80)) {
+        uint8_t zero = 0;
+        [v replaceBytesInRange:NSMakeRange(0, 0) withBytes:&zero length:1];
+    }
+    return LLLTLV(0x02, v);
+}
+
+static SecKeyRef LLLRSAPublicKey(void) {
+    static SecKeyRef key;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableData *rsa = [NSMutableData data];
+        [rsa appendData:LLLDERInt(LLLDataFromHex(kRsaN))];
+        [rsa appendData:LLLDERInt(LLLDataFromHex(kRsaE))];
+        NSData *seq = LLLTLV(0x30, rsa);
+
+        static const uint8_t oidBytes[] = { 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01 };
+        NSData *oid = [NSData dataWithBytes:oidBytes length:sizeof(oidBytes)];
+        static const uint8_t nullBytes[] = { 0x05, 0x00 };
+        NSData *nul = [NSData dataWithBytes:nullBytes length:2];
+
+        NSMutableData *alg = [NSMutableData data];
+        [alg appendData:oid];
+        [alg appendData:nul];
+        NSData *algSeq = LLLTLV(0x30, alg);
+
+        NSMutableData *bit = [NSMutableData data];
+        uint8_t zero = 0;
+        [bit appendBytes:&zero length:1];
+        [bit appendData:seq];
+
+        NSMutableData *spki = [NSMutableData data];
+        [spki appendData:algSeq];
+        [spki appendData:LLLTLV(0x03, bit)];
+        NSData *spkiSeq = LLLTLV(0x30, spki);
+
+        NSDictionary *attrs = @{
+            (id)kSecAttrKeyType  : (id)kSecAttrKeyTypeRSA,
+            (id)kSecAttrKeyClass : (id)kSecAttrKeyClassPublic,
+        };
+        CFErrorRef err = NULL;
+        key = SecKeyCreateWithData((__bridge CFDataRef)spkiSeq, (__bridge CFDictionaryRef)attrs, &err);
+        if (!key) lllLog(@"网易云 RSA 公钥构造失败: %@", err);
+    });
+    return key;
+}
+
+/// 裸 RSA 加密 16 位随机串 → 128 字节 → hex
+static NSString *LLLEncSecKey(NSString *secret) {
+    SecKeyRef key = LLLRSAPublicKey();
+    if (!key) return nil;
+
+    NSData *raw = [secret dataUsingEncoding:NSUTF8StringEncoding];
+    if (raw.length == 0 || raw.length > 128) return nil;
+
+    NSMutableData *block = [NSMutableData dataWithLength:128];
+    uint8_t *p = block.mutableBytes;
+    const uint8_t *src = raw.bytes;
+    for (NSUInteger i = 0; i < raw.length; i++) p[128 - 1 - i] = src[i];
+
+    CFErrorRef err = NULL;
+    CFDataRef out = SecKeyCreateEncryptedData(key, kSecKeyAlgorithmRSAEncryptionRaw,
+                                              (__bridge CFDataRef)block, &err);
+    if (!out) {
+        lllLog(@"网易云 encSecKey 失败: %@", err);
+        return nil;
+    }
+    NSString *hex = LLLHexStr((__bridge NSData *)out);
+    CFRelease(out);
+    return hex;
+}
+
+static NSString *LLLRandomKey(void) {
+    NSString *pool = @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    NSMutableString *s = [NSMutableString stringWithCapacity:16];
+    for (int i = 0; i < 16; i++) {
+        uint32_t idx = arc4random_uniform((uint32_t)pool.length);
+        [s appendFormat:@"%C", [pool characterAtIndex:idx]];
+    }
+    return s;
+}
+
+#pragma mark -
 
 @interface LLLCloudMusic ()
 @property (nonatomic, strong) NSURLSession *session;
@@ -30,10 +199,10 @@ static NSString * const kUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 l
 - (void)getJSON:(NSString *)path
          params:(NSDictionary<NSString *, NSString *> *)params
            done:(void (^)(id json, NSError *err))done;
-- (void)getJSON:(NSString *)path
-         params:(NSDictionary<NSString *, NSString *> *)params
-          retry:(NSInteger)retry
-           done:(void (^)(id json, NSError *err))done;
+- (void)postWeapi:(NSString *)path
+           params:(NSDictionary *)params
+             done:(void (^)(id json, NSError *err))done;
+- (NSArray<NSDictionary *> *)mapTracks:(NSArray *)tracks;
 @end
 
 @implementation LLLCloudMusic
@@ -49,12 +218,16 @@ static NSString * const kUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 l
     if (self = [super init]) {
         NSURLSessionConfiguration *cfg = NSURLSessionConfiguration.defaultSessionConfiguration;
         cfg.HTTPAdditionalHeaders = @{
-            @"User-Agent" : kUserAgent,
+            @"User-Agent" : kUA,
             @"Referer"    : kBase,
             @"Origin"     : kBase,
         };
+        cfg.HTTPCookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+        cfg.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+        cfg.HTTPShouldSetCookies = YES;
         cfg.timeoutIntervalForRequest = 15;
         _session = [NSURLSession sessionWithConfiguration:cfg];
+        [NSHTTPCookieStorage sharedHTTPCookieStorage].cookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
         _loggedIn = [self hasCookie];
     }
     return self;
@@ -66,23 +239,16 @@ static NSString * const kUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 l
     for (NSHTTPCookie *c in NSHTTPCookieStorage.sharedHTTPCookieStorage.cookies) {
         if ([c.domain containsString:@"music.163.com"] &&
             ([c.name isEqualToString:@"MUSIC_U"] || [c.name isEqualToString:@"MUSIC_A"])) {
-            return YES;
+            return c.value.length > 0;
         }
     }
     return NO;
 }
 
-#pragma mark - 通用请求
+#pragma mark - 请求
 
 - (void)getJSON:(NSString *)path
          params:(NSDictionary<NSString *, NSString *> *)params
-           done:(void (^)(id json, NSError *err))done {
-    [self getJSON:path params:params retry:2 done:done];
-}
-
-- (void)getJSON:(NSString *)path
-         params:(NSDictionary<NSString *, NSString *> *)params
-          retry:(NSInteger)retry
            done:(void (^)(id json, NSError *err))done {
     NSMutableString *url = [NSMutableString stringWithFormat:@"%@%@", kBase, path];
     if (params.count) {
@@ -90,51 +256,62 @@ static NSString * const kUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 l
         __block NSUInteger i = 0;
         [params enumerateKeysAndObjectsUsingBlock:^(NSString *k, NSString *v, BOOL *stop) {
             if (i++) [url appendString:@"&"];
-            [url appendFormat:@"%@=%@", k, [v stringByAddingPercentEncodingWithAllowedCharacters:
-                                             NSCharacterSet.URLQueryAllowedCharacterSet]];
+            NSString *enc = [v stringByAddingPercentEncodingWithAllowedCharacters:
+                             NSCharacterSet.URLQueryAllowedCharacterSet];
+            [url appendFormat:@"%@=%@", k, enc ?: @""];
         }];
     }
 
     NSURL *finalURL = [NSURL URLWithString:url];
-    if (!finalURL) {                     // URL 非法直接返回，别把 nil 丢给 requestWithURL（会抛异常崩溃）
+    if (!finalURL) {
         if (done) done(nil, [NSError errorWithDomain:@"LLLCloud" code:-1 userInfo:nil]);
         return;
     }
 
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:finalURL];
-    req.HTTPMethod = @"GET";
-    [req setValue:kUserAgent forHTTPHeaderField:@"User-Agent"];
+    [req setValue:kUA forHTTPHeaderField:@"User-Agent"];
     [req setValue:kBase forHTTPHeaderField:@"Referer"];
 
-    __weak typeof(self) w = self;
     [[_session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
-        __strong typeof(w) s = w;
-        if (!s) return;
-
-        if (err || !data) {
-            if (retry > 0) {
-                NSTimeInterval wait = (retry == 2) ? 1.0 : 2.0;
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(wait * NSEC_PER_SEC)),
-                               dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-                    __strong typeof(w) s2 = w;
-                    if (s2) [s2 getJSON:path params:params retry:retry - 1 done:done];
-                });
-                return;
-            }
-            if (done) done(nil, err);
-            return;
-        }
-
+        if (err || !data.length) { if (done) done(nil, err); return; }
         NSError *je = nil;
         id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
-        if (!obj && retry > 0) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-                           dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-                __strong typeof(w) s2 = w;
-                if (s2) [s2 getJSON:path params:params retry:retry - 1 done:done];
-            });
-            return;
-        }
+        if (done) done(obj, je);
+    }] resume];
+}
+
+- (void)postWeapi:(NSString *)path
+           params:(NSDictionary *)params
+             done:(void (^)(id json, NSError *err))done {
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:params ?: @{} options:0 error:nil];
+    NSString *json = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    if (!json) { if (done) done(nil, [NSError errorWithDomain:@"LLLCloud" code:-2 userInfo:nil]); return; }
+
+    NSString *secret = LLLRandomKey();
+    NSData *aes = LLLAES128([json dataUsingEncoding:NSUTF8StringEncoding], secret);
+    NSString *enc = LLLEncSecKey(secret);
+    if (!aes || !enc) {
+        if (done) done(nil, [NSError errorWithDomain:@"LLLCloud" code:-3 userInfo:nil]);
+        return;
+    }
+
+    NSString *paramsB64 = [aes base64EncodedStringWithOptions:0];
+    NSString *bodyStr = [NSString stringWithFormat:@"params=%@&encSecKey=%@",
+                         [paramsB64 stringByAddingPercentEncodingWithAllowedCharacters:
+                          NSCharacterSet.URLQueryAllowedCharacterSet], enc];
+
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@%@?csrf_token=", kBase, path]];
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+    [req setValue:kUA forHTTPHeaderField:@"User-Agent"];
+    [req setValue:kBase forHTTPHeaderField:@"Referer"];
+    req.HTTPBody = [bodyStr dataUsingEncoding:NSUTF8StringEncoding];
+
+    [[_session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        if (err || !data.length) { if (done) done(nil, err); return; }
+        NSError *je = nil;
+        id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
         if (done) done(obj, je);
     }] resume];
 }
@@ -160,8 +337,6 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     return img;
 }
 
-#pragma mark - 登录
-
 - (void)cancelLogin {
     [_pollTimer invalidate];
     _pollTimer = nil;
@@ -186,7 +361,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
             if (!key) key = json[@"key"];
         }
         if (!key.length) {
-            if (s.doneBlock) s.doneBlock(NO, @"拿不到 unikey，网络或接口变了");
+            if (s.doneBlock) s.doneBlock(NO, @"拿不到 unikey，检查网络或接口变化");
             return;
         }
 
@@ -195,18 +370,17 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
 
         NSString *content = [NSString stringWithFormat:@"%@/login?codekey=%@", kBase, key];
         UIImage *qr = LLLQRImage(content, 220);
-        if (s.progressBlock) s.progressBlock(qr, @"请用网易云 App 扫码");
+        if (s.progressBlock) s.progressBlock(qr, @"打开网易云 App → 右上角扫一扫");
 
-        // 定时器必须在主线程的 runloop 上创建，否则永远不触发
         dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(w) ss2 = w;
-            if (!ss2) return;
-            ss2.pollTimer = [NSTimer timerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
-                __strong typeof(w) sss = w;
-                if (!sss) { [t invalidate]; return; }
-                [sss pollOnce];
+            __strong typeof(w) s2 = w;
+            if (!s2) return;
+            s2.pollTimer = [NSTimer timerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
+                __strong typeof(w) s3 = w;
+                if (!s3) { [t invalidate]; return; }
+                [s3 pollOnce];
             }];
-            [[NSRunLoop mainRunLoop] addTimer:ss2.pollTimer forMode:NSRunLoopCommonModes];
+            [[NSRunLoop mainRunLoop] addTimer:s2.pollTimer forMode:NSRunLoopCommonModes];
         });
     }];
 }
@@ -215,7 +389,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     if (!_uniKey.length) { [self cancelLogin]; return; }
 
     _pollCount++;
-    if (_pollCount > 90) {           // 3 分钟
+    if (_pollCount > 120) {
         [self cancelLogin];
         if (_doneBlock) _doneBlock(NO, @"二维码超时，重新来一次");
         return;
@@ -238,19 +412,103 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
         if (code == 800) {
             if (s.progressBlock) s.progressBlock(nil, @"等待扫码…");
         } else if (code == 801) {
-            if (s.progressBlock) s.progressBlock(nil, @"已扫码，请在手机上确认");
+            if (s.progressBlock) s.progressBlock(nil, @"已扫码，请在手机上点确认");
         } else if (code == 802) {
             [s cancelLogin];
             if (s.doneBlock) s.doneBlock(NO, @"已在手机上取消");
         } else if (code == 803) {
             [s cancelLogin];
-            s.loggedIn = YES;
             [s fetchAccountThen:^(BOOL ok, NSString *m) {
-                if (s.doneBlock) s.doneBlock(ok, ok ? [NSString stringWithFormat:@"登录成功：%@", s.nickname ?: @"网易云用户"] : m);
+                s.loggedIn = ok && [s hasCookie];
+                if (s.doneBlock) {
+                    s.doneBlock(ok && s.loggedIn,
+                                ok ? [NSString stringWithFormat:@"登录成功：%@", s.nickname ?: @"网易云用户"]
+                                   : (m ?: @"登录失败"));
+                }
             }];
         } else {
             if (s.progressBlock) s.progressBlock(nil, msg.length ? msg : @"等待中…");
         }
+    }];
+}
+
+#pragma mark - 手机号 / Cookie
+
+- (void)loginWithPhone:(NSString *)phone
+              password:(NSString *)password
+            completion:(void (^)(BOOL, NSString *))done {
+    NSString *p = [phone stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (p.length < 6 || password.length == 0) {
+        if (done) done(NO, @"手机号或密码为空");
+        return;
+    }
+
+    NSDictionary *params = @{
+        @"phone"         : p,
+        @"countrycode"   : @"86",
+        @"password"      : LLLMD5Hex(password),
+        @"rememberLogin" : @"true",
+    };
+
+    __weak typeof(self) w = self;
+    [self postWeapi:@"/weapi/login/cellphone" params:params done:^(id json, NSError *err) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+
+        NSInteger code = [json isKindOfClass:NSDictionary.class] ? [json[@"code"] integerValue] : -1;
+        if (code != 200) {
+            NSString *msg = [json isKindOfClass:NSDictionary.class] ? json[@"message"] : nil;
+            if (err) msg = @"网络错误，稍后再试";
+            if (done) done(NO, msg.length ? msg : @"登录失败，账号或密码不对");
+            return;
+        }
+
+        [s fetchAccountThen:^(BOOL ok, NSString *m) {
+            s.loggedIn = ok && [s hasCookie];
+            if (done) done(ok && s.loggedIn,
+                           ok ? [NSString stringWithFormat:@"登录成功：%@", s.nickname ?: @"网易云用户"]
+                              : (m ?: @"登录失败"));
+        }];
+    }];
+}
+
+- (void)loginWithCookie:(NSString *)rawCookie
+             completion:(void (^)(BOOL, NSString *))done {
+    NSString *raw = [rawCookie stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!raw.length) { if (done) done(NO, @"Cookie 是空的"); return; }
+
+    NSArray<NSString *> *parts = [raw componentsSeparatedByString:@";"];
+    NSUInteger added = 0;
+    for (NSString *kv in parts) {
+        NSRange eq = [kv rangeOfString:@"="];
+        if (eq.location == NSNotFound) continue;
+        NSString *name = [[kv substringToIndex:eq.location]
+                          stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        NSString *val = [[kv substringFromIndex:eq.location + 1]
+                         stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (!name.length || !val.length) continue;
+
+        NSDictionary *props = @{
+            NSHTTPCookieName    : name,
+            NSHTTPCookieValue   : val,
+            NSHTTPCookieDomain  : @".music.163.com",
+            NSHTTPCookiePath    : @"/",
+            NSHTTPCookieSecure  : @"TRUE",
+        };
+        NSHTTPCookie *c = [NSHTTPCookie cookieWithProperties:props];
+        if (c) { [NSHTTPCookieStorage.sharedHTTPCookieStorage setCookie:c]; added++; }
+    }
+
+    if (!added) { if (done) done(NO, @"没解析出有效的 Cookie"); return; }
+
+    __weak typeof(self) w = self;
+    [self fetchAccountThen:^(BOOL ok, NSString *m) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+        s.loggedIn = ok && [s hasCookie];
+        if (done) done(s.loggedIn,
+                       s.loggedIn ? [NSString stringWithFormat:@"登录成功：%@", s.nickname ?: @"网易云用户"]
+                                  : (m ?: @"Cookie 已失效，重新抓一个"));
     }];
 }
 
@@ -260,24 +518,51 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
         __strong typeof(w) s = w;
         if (!s) return;
 
+        BOOL ok = NO;
         if ([json isKindOfClass:NSDictionary.class]) {
             NSDictionary *profile = json[@"profile"];
             if ([profile isKindOfClass:NSDictionary.class]) {
                 s.nickname = profile[@"nickname"];
                 s.uid = [profile[@"userId"] longLongValue];
+                ok = (s.uid != 0);
             }
         }
-        // 兜底：从 cookie 里翻 uid
-        if (s.uid == 0) {
-            for (NSHTTPCookie *c in NSHTTPCookieStorage.sharedHTTPCookieStorage.cookies) {
-                if ([c.name isEqualToString:@"MUSIC_U"] && c.value.length > 30) break;
-            }
-        }
-        if (done) done(YES, nil);
+        if (done) done(ok || [s hasCookie], ok ? nil : @"拿不到账号信息");
     }];
 }
 
-#pragma mark - 我喜欢的音乐
+#pragma mark - 歌单 / 搜索
+
+- (NSArray<NSDictionary *> *)mapTracks:(NSArray *)tracks {
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSDictionary *t in tracks) {
+        if (![t isKindOfClass:NSDictionary.class]) continue;
+        NSString *name = t[@"name"];
+        NSString *artist = @"";
+        NSString *pic = nil;
+        if ([t[@"al"] isKindOfClass:NSDictionary.class]) pic = t[@"al"][@"picUrl"];
+        if (!pic && [t[@"album"] isKindOfClass:NSDictionary.class]) pic = t[@"album"][@"picUrl"];
+
+        NSTimeInterval dur = [t[@"dt"] doubleValue] / 1000.0;
+        if (dur <= 0) dur = [t[@"duration"] doubleValue] / 1000.0;
+
+        NSArray *ar = t[@"ar"] ?: t[@"artists"];
+        if ([ar isKindOfClass:NSArray.class] && ar.count) {
+            NSDictionary *a0 = ar.firstObject;
+            if ([a0 isKindOfClass:NSDictionary.class]) artist = a0[@"name"] ?: @"";
+        }
+        if (![pic isKindOfClass:NSString.class]) pic = nil;
+
+        [out addObject:@{
+            @"id"     : t[@"id"] ?: @0,
+            @"name"   : name ?: @"未知",
+            @"artist" : artist,
+            @"pic"    : pic ?: @"",
+            @"dur"    : @(dur),
+        }];
+    }
+    return out;
+}
 
 - (void)loadLikedSongs:(void (^)(NSArray<NSDictionary *> *, NSString *))done {
     if (![self hasCookie]) { if (done) done(nil, @"还没登录"); return; }
@@ -286,18 +571,16 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     void (^afterUid)(void) = ^{
         __strong typeof(w) s = w;
         if (!s) return;
-
         if (s.uid == 0) { if (done) done(nil, @"拿不到用户 ID"); return; }
 
         [s getJSON:@"/api/user/playlist"
             params:@{ @"uid" : [NSString stringWithFormat:@"%lld", s.uid],
                       @"limit" : @"1000", @"offset" : @"0" }
               done:^(id json, NSError *err) {
-            __strong typeof(w) ss = w;
-            if (!ss) return;
+            __strong typeof(w) s2 = w;
+            if (!s2) return;
 
-            NSArray *list = nil;
-            if ([json isKindOfClass:NSDictionary.class]) list = json[@"playlist"];
+            NSArray *list = [json isKindOfClass:NSDictionary.class] ? json[@"playlist"] : nil;
             if (![list isKindOfClass:NSArray.class]) { if (done) done(nil, @"歌单接口没返回数据"); return; }
 
             NSNumber *likedId = nil;
@@ -308,29 +591,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
             }
             if (!likedId) { if (done) done(nil, @"没找到「我喜欢的音乐」"); return; }
 
-            [ss getJSON:@"/api/v6/playlist/detail"
-                params:@{ @"id" : likedId.stringValue, @"n" : @"1000" }
-                  done:^(id j2, NSError *e2) {
-                NSMutableArray *out = [NSMutableArray array];
-                NSDictionary *pl = ([j2 isKindOfClass:NSDictionary.class]) ? j2[@"playlist"] : nil;
-                NSArray *tracks = ([pl isKindOfClass:NSDictionary.class]) ? pl[@"tracks"] : nil;
-                if ([tracks isKindOfClass:NSArray.class]) {
-                    for (NSDictionary *t in tracks) {
-                        if (![t isKindOfClass:NSDictionary.class]) continue;
-                        NSString *name = t[@"name"];
-                        NSArray *ar = t[@"ar"];
-                        NSString *artist = @"";
-                        if ([ar isKindOfClass:NSArray.class] && ar.count) {
-                            NSDictionary *a0 = ar.firstObject;
-                            if ([a0 isKindOfClass:NSDictionary.class]) artist = a0[@"name"] ?: @"";
-                        }
-                        [out addObject:@{ @"id"   : t[@"id"] ?: @0,
-                                          @"name" : name ?: @"未知",
-                                          @"artist" : artist }];
-                    }
-                }
-                if (done) done(out, out.count ? nil : @"列表是空的");
-            }];
+            [s2 loadPlaylist:likedId done:done];
         }];
     };
 
@@ -338,14 +599,33 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     [self fetchAccountThen:^(BOOL ok, NSString *m) { afterUid(); }];
 }
 
-#pragma mark - 搜索
+- (void)loadPlaylist:(NSNumber *)pid
+                done:(void (^)(NSArray<NSDictionary *> *, NSString *))done {
+    if (!pid) { if (done) done(nil, @"没有歌单 ID"); return; }
+
+    __weak typeof(self) w = self;
+    [self getJSON:@"/api/v6/playlist/detail"
+           params:@{ @"id" : pid.stringValue, @"n" : @"1000" }
+             done:^(id json, NSError *err) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+
+        NSDictionary *pl = [json isKindOfClass:NSDictionary.class] ? json[@"playlist"] : nil;
+        NSArray *tracks = [pl isKindOfClass:NSDictionary.class] ? pl[@"tracks"] : nil;
+        if (![tracks isKindOfClass:NSArray.class]) { if (done) done(nil, @"歌单接口没返回数据"); return; }
+
+        NSArray *out = [s mapTracks:tracks];
+        if (done) done(out, out.count ? nil : @"歌单是空的");
+    }];
+}
 
 - (void)searchSongs:(NSString *)keyword done:(void (^)(NSArray<NSDictionary *> *, NSString *))done {
-    if (!keyword.length) { if (done) done(nil, @"关键词是空的"); return; }
+    NSString *kw = [keyword stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!kw.length) { if (done) done(nil, @"关键词是空的"); return; }
 
     __weak typeof(self) w = self;
     [self getJSON:@"/api/search/get"
-           params:@{ @"s" : keyword, @"type" : @"1", @"limit" : @"30", @"offset" : @"0" }
+           params:@{ @"s" : kw, @"type" : @"1", @"limit" : @"30", @"offset" : @"0" }
              done:^(id json, NSError *err) {
         __strong typeof(w) s = w;
         if (!s) return;
@@ -355,36 +635,59 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
             NSDictionary *r = json[@"result"];
             if ([r isKindOfClass:NSDictionary.class]) songs = r[@"songs"];
         }
-        if (![songs isKindOfClass:NSArray.class]) {
-            if (done) done(nil, @"搜索没返回结果");
-            return;
-        }
+        if (![songs isKindOfClass:NSArray.class]) { if (done) done(nil, @"搜索没返回结果"); return; }
 
-        NSMutableArray *out = [NSMutableArray array];
-        for (NSDictionary *sg in songs) {
-            if (![sg isKindOfClass:NSDictionary.class]) continue;
-            NSString *artist = @"";
-            NSArray *ar = sg[@"artists"];
-            if ([ar isKindOfClass:NSArray.class] && ar.count) {
-                NSDictionary *a0 = ar.firstObject;
-                if ([a0 isKindOfClass:NSDictionary.class]) artist = a0[@"name"] ?: @"";
-            }
-            [out addObject:@{ @"id" : sg[@"id"] ?: @0,
-                              @"name" : sg[@"name"] ?: @"未知",
-                              @"artist" : artist }];
-        }
+        NSArray *out = [s mapTracks:songs];
         if (done) done(out, out.count ? nil : @"没搜到歌");
     }];
 }
 
-#pragma mark - 播放直链
+#pragma mark - 取流 / 封面
 
 - (void)resolvePlayURL:(NSNumber *)songID done:(void (^)(NSURL *, NSString *))done {
     if (!songID) { if (done) done(nil, @"没有歌曲 ID"); return; }
 
-    NSString *s = [NSString stringWithFormat:@"%@/song/media/outer/url?id=%@.mp3", kBase, songID];
-    NSURL *url = [NSURL URLWithString:s];
-    if (done) done(url, nil);   // AVPlayer 会自己跟 302
+    NSString *ids = [NSString stringWithFormat:@"[%@]", songID.stringValue];
+    __weak typeof(self) w = self;
+    [self getJSON:@"/api/song/enhance/player/url"
+           params:@{ @"ids" : ids, @"br" : @"320000" }
+             done:^(id json, NSError *err) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+
+        NSString *u = nil;
+        if ([json isKindOfClass:NSDictionary.class]) {
+            NSArray *data = json[@"data"];
+            if ([data isKindOfClass:NSArray.class] && data.count) {
+                NSDictionary *d0 = data.firstObject;
+                if ([d0 isKindOfClass:NSDictionary.class] && [d0[@"url"] isKindOfClass:NSString.class])
+                    u = d0[@"url"];
+            }
+        }
+
+        if (u.length) {
+            if (done) done([NSURL URLWithString:u], nil);
+            return;
+        }
+
+        NSURL *fallback = [NSURL URLWithString:
+                           [NSString stringWithFormat:@"%@/song/media/outer/url?id=%@.mp3", kBase, songID]];
+        if (fallback) { if (done) done(fallback, nil); return; }
+        if (done) done(nil, @"这首歌没有可用播放地址（版权或会员限制）");
+    }];
+}
+
+- (void)loadArtwork:(NSString *)url done:(void (^)(UIImage *))done {
+    if (!url.length) { if (done) done(nil); return; }
+    NSURL *u = [NSURL URLWithString:url];
+    if (!u) { if (done) done(nil); return; }
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:u];
+    [req setValue:kUA forHTTPHeaderField:@"User-Agent"];
+    [[_session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        UIImage *img = (data.length > 32) ? [UIImage imageWithData:data] : nil;
+        if (done) done(img);
+    }] resume];
 }
 
 #pragma mark - 退出

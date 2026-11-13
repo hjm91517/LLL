@@ -271,7 +271,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     _tab2 = [self tBtn:@"注入队列" ico:@"tray.and.arrow.down.fill" act:@selector(showQueueTab)];
     _tab3 = [self tBtn:@"mcp插件" ico:@"puzzlepiece.fill" act:@selector(showPluginTab)];
     _tab4 = [self tBtn:@"mcp注入" ico:@"arrow.right.doc.on.clipboard" act:@selector(showPluginQueueTab)];
-    _tab6 = [self tBtn:@"音乐盒" ico:@"music.note.list" act:@selector(showMusicTab)];
+    _tab6 = [self tBtn:@"音乐播放器" ico:@"music.note.list" act:@selector(showMusicTab)];
     _tab7 = [self tBtn:@"设置" ico:@"gearshape.fill" act:@selector(showSettingsTab)];
 
     for (UIButton *b in @[_tab1, _tab2, _tab3, _tab4, _tab6, _tab7]) {
@@ -587,11 +587,8 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [self refreshBgFiles];
     [self updateBackground];
 
-    __weak typeof(self) wself = self;
-    [LLLMusicIsland setTapHandler:^{
-        __strong typeof(wself) ss = wself;
-        if (ss) [ss togglePlayPause];
-    }];
+    // 灵动岛自己处理展开/收起，这里不再抢点击
+    [LLLMusicIsland setTapHandler:nil];
 
     // 首次布局后把侧栏滑块摆到「材质包」上
     __weak typeof(self) w = self;
@@ -1091,7 +1088,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 
 - (void)showMusicTab {
     lllLog(@"进入音乐页 card=%@ btn=%@", _playerCard, _playerCloudBtn);
-    [self setHeader:@"音乐盒" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
+    [self setHeader:@"音乐播放器" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
     [self reloadMusicData];
     [self startProgressTimer];
     [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
