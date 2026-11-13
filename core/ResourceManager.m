@@ -373,6 +373,7 @@ static BOOL mergeDir(NSString *srcDir, NSString *dstDir) {
     BOOL touched = NO;
 
     for (NSString *item in items) {
+        if (LLLProgressCancelled()) return touched;
         if ([item isEqualToString:@"manifest.json"] || [item isEqualToString:@"pack_manifest.json"]) continue;
         if ([item isEqualToString:@"__MACOSX"] || [item isEqualToString:@".DS_Store"] ||
             [item isEqualToString:@"Thumbs.db"] || [item isEqualToString:@"desktop.ini"]) continue;
@@ -486,9 +487,11 @@ static void LLLReportTick(NSString *path) {
 
     NSString *counter = [NSString stringWithFormat:@"%lu / %lu",
                          (unsigned long)sLLLDone, (unsigned long)sLLLTotal];
+    CGFloat pct = (CGFloat)sLLLDone / (CGFloat)MAX(sLLLTotal, (NSUInteger)1);
     NSString *name = path.lastPathComponent;
     dispatch_async(dispatch_get_main_queue(), ^{
         LLLProgressUpdate(counter);
+        LLLProgressSetPercent(pct);
         if (name.length) LLLProgressLine(name);
     });
 }
@@ -543,6 +546,7 @@ static NSUInteger lllCountFiles(NSString *dir) {
             BOOL any = NO;
 
             for (NSString *t in targets) {
+                if (LLLProgressCancelled()) { lllLog(@"用户取消注入"); break; }
                 // 开一本新账（重复加载时不开，免得两份 dylib 互相覆盖）
                 if (!gLLLDuplicateLoad) {
                     sJournalRoot = t;

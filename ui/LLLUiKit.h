@@ -33,6 +33,8 @@ void LLLProgressShow(NSString *title);
 void LLLProgressUpdate(NSString *counter);
 void LLLProgressLine(NSString *line);
 void LLLProgressHide(void);
+void LLLProgressSetPercent(CGFloat p);
+BOOL LLLProgressCancelled(void);
 
 /// 轻提示（不用系统 HUD）
 void LLLShowHUD(NSString *text, NSTimeInterval duration);

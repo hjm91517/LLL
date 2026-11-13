@@ -417,10 +417,17 @@ static UILabel *gProgTitle = nil;
 static UILabel *gProgCounter = nil;
 static UITextView *gProgLog = nil;
 static NSMutableArray<NSString *> *gProgLines = nil;
+static UILabel *gProgPercent = nil;
+static UIView  *gProgBarBg = nil;
+static UIView  *gProgBarFill = nil;
+static BOOL     gProgCancel = NO;
+
+BOOL LLLProgressCancelled(void) { return gProgCancel; }
 
 void LLLProgressShow(NSString *title) {
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
+            gProgCancel = NO;
             if (gProgCard) {
                 gProgTitle.text = title.length ? title : @"注入中";
                 return;
@@ -435,7 +442,7 @@ void LLLProgressShow(NSString *title) {
 
             UIView *card = LLLNewCard(300);
             card.tag = 99022;
-            card.frame = CGRectMake(0, 0, 300, 268);
+            card.frame = CGRectMake(0, 0, 300, 340);
             [host addSubview:card];
             gProgCard = card;
 
@@ -451,7 +458,25 @@ void LLLProgressShow(NSString *title) {
             gProgCounter.textColor = LLLAccentColor();
             [card addSubview:gProgCounter];
 
-            gProgLog = [[UITextView alloc] initWithFrame:CGRectMake(10, 62, 280, 196)];
+            // 百分比
+            gProgPercent = [[UILabel alloc] initWithFrame:CGRectMake(16, 62, 268, 20)];
+            gProgPercent.text = @"0%";
+            gProgPercent.font = [UIFont monospacedDigitSystemFontOfSize:18 weight:UIFontWeightHeavy];
+            gProgPercent.textColor = LLLAccentColor();
+            gProgPercent.textAlignment = NSTextAlignmentRight;
+            [card addSubview:gProgPercent];
+
+            gProgBarBg = [[UIView alloc] initWithFrame:CGRectMake(16, 86, 268, 6)];
+            gProgBarBg.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
+            gProgBarBg.layer.cornerRadius = 3;
+            gProgBarBg.clipsToBounds = YES;
+            [card addSubview:gProgBarBg];
+
+            gProgBarFill = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 6)];
+            gProgBarFill.backgroundColor = LLLAccentColor();
+            [gProgBarBg addSubview:gProgBarFill];
+
+            gProgLog = [[UITextView alloc] initWithFrame:CGRectMake(10, 100, 280, 168)];
             gProgLog.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
             gProgLog.layer.cornerRadius = 10;
             gProgLog.editable = NO;
@@ -464,10 +489,36 @@ void LLLProgressShow(NSString *title) {
 
             gProgLines = [NSMutableArray array];
 
+            UIButton *cancelBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+            cancelBtn.frame = CGRectMake(14, 276, 272, 42);
+            cancelBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
+            cancelBtn.layer.cornerRadius = 11;
+            [cancelBtn setTitle:@"取消" forState:UIControlStateNormal];
+            [cancelBtn setTitleColor:[UIColor colorWithRed:1 green:0.4 blue:0.4 alpha:1]
+                            forState:UIControlStateNormal];
+            cancelBtn.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+            [cancelBtn lll_onTap:^{ gProgCancel = YES; LLLProgressHide(); }];
+            [card addSubview:cancelBtn];
+
             card.center = CGPointMake(host.bounds.size.width / 2, host.bounds.size.height / 2);
             card.alpha = 0;
             card.transform = CGAffineTransformMakeScale(0.94, 0.94);
             LLLSpring(0.32, 0.86, ^{ card.alpha = 1; card.transform = CGAffineTransformIdentity; });
+        } @catch (__unused NSException *e) { }
+    });
+}
+
+void LLLProgressSetPercent(CGFloat p) {
+    if (p < 0) p = 0;
+    if (p > 1) p = 1;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            if (gProgPercent) gProgPercent.text = [NSString stringWithFormat:@"%.0f%%", p * 100];
+            if (gProgBarFill && gProgBarBg) {
+                CGRect f = gProgBarFill.frame;
+                f.size.width = gProgBarBg.bounds.size.width * p;
+                gProgBarFill.frame = f;
+            }
         } @catch (__unused NSException *e) { }
     });
 }
@@ -511,6 +562,190 @@ void LLLProgressHide(void) {
                 [card removeFromSuperview];
                 [dim removeFromSuperview];
             }];
+        } @catch (__unused NSException *e) { }
+    });
+}
+
+
+
+#pragma mark - 滑动验证控件
+
+@interface LLLLaunchSlider : NSObject <UIGestureRecognizerDelegate>
+@property (nonatomic, strong) UIView *track;
+@property (nonatomic, strong) UIView *knob;
+@property (nonatomic, strong) UILabel *tip;
+@property (nonatomic, strong) UIView *cover;
+@property (nonatomic, strong) UIPanGestureRecognizer *pan;
+- (instancetype)initWithTrack:(UIView *)track knob:(UIView *)knob tip:(UILabel *)tip cover:(UIView *)cover;
+@end
+
+@implementation LLLLaunchSlider
+
+- (instancetype)initWithTrack:(UIView *)track knob:(UIView *)knob tip:(UILabel *)tip cover:(UIView *)cover {
+    if (self = [super init]) {
+        _track = track; _knob = knob; _tip = tip; _cover = cover;
+        _pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+        _pan.delegate = self;
+    }
+    return self;
+}
+
+- (void)handlePan:(UIPanGestureRecognizer *)g {
+    CGPoint p = [g translationInView:_track];
+    CGFloat maxX = _track.bounds.size.width - _knob.bounds.size.width - 4;
+    CGFloat x = MAX(4, MIN(4 + p.x, maxX));
+    CGRect kf = _knob.frame;
+    kf.origin.x = x;
+    _knob.frame = kf;
+    _tip.alpha = 1 - (x - 4) / MAX(maxX - 4, 1);
+
+    if (g.state == UIGestureRecognizerStateEnded ||
+        g.state == UIGestureRecognizerStateCancelled) {
+        if (x >= maxX - 8) {
+            [self pass];
+        } else {
+            [UIView animateWithDuration:0.25 animations:^{
+                CGRect f = _knob.frame;
+                f.origin.x = 4;
+                _knob.frame = f;
+                _tip.alpha = 1;
+            }];
+        }
+    }
+}
+
+- (void)pass {
+    [_track removeGestureRecognizer:_pan];
+    [UIView animateWithDuration:0.25 animations:^{
+        _track.alpha = 0;
+    } completion:^(BOOL f) {
+        [_track removeFromSuperview];
+        [self runInit];
+    }];
+}
+
+- (void)runInit {
+    UILabel *pct = [[UILabel alloc] init];
+    pct.frame = CGRectMake(0, 0, _cover.bounds.size.width, 30);
+    pct.center = CGPointMake(_cover.bounds.size.width / 2, _cover.bounds.size.height / 2 + 10);
+    pct.font = [UIFont monospacedDigitSystemFontOfSize:20 weight:UIFontWeightBold];
+    pct.textColor = LLLAccentColor();
+    pct.textAlignment = NSTextAlignmentCenter;
+    pct.text = @"正在初始化 0%";
+    pct.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [_cover addSubview:pct];
+
+    __block NSInteger p = 0;
+    NSTimer *t = [NSTimer timerWithTimeInterval:0.04 repeats:YES block:^(NSTimer *timer) {
+        p += 2;
+        pct.text = [NSString stringWithFormat:@"正在初始化 %ld%%", (long)MIN(p, 100)];
+        if (p >= 100) {
+            [timer invalidate];
+            [UIView animateWithDuration:0.4 animations:^{
+                self.cover.alpha = 0;
+            } completion:^(BOOL f) {
+                [self.cover removeFromSuperview];
+                if ([self.cover.superview.subviews count] == 0 && gLLLWin) gLLLWin.hidden = YES;
+            }];
+        }
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
+
+    // 6 秒兜底
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (self.cover.superview) {
+            [UIView animateWithDuration:0.3 animations:^{ self.cover.alpha = 0; }
+                             completion:^(BOOL f) { [self.cover removeFromSuperview]; }];
+        }
+    });
+}
+
+@end
+
+#pragma mark - 启动序列
+
+void LLLShowLaunch(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            UIWindow *win = LLLOverlayWindow();
+            win.hidden = NO;
+            UIView *host = win.rootViewController.view;
+            if (!host) return;
+
+            UIView *cover = [[UIView alloc] initWithFrame:host.bounds];
+            cover.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            cover.backgroundColor = [UIColor colorWithWhite:0.04 alpha:0.98];
+            cover.tag = 99031;
+            [host addSubview:cover];
+
+            // 1) 标题从左滑入
+            UILabel *title = [UILabel new];
+            title.text = @"欢迎使用 bbhj-online";
+            title.font = [UIFont systemFontOfSize:24 weight:UIFontWeightHeavy];
+            title.textColor = UIColor.whiteColor;
+            title.textAlignment = NSTextAlignmentCenter;
+            title.frame = CGRectMake(0, cover.bounds.size.height / 2 - 90, cover.bounds.size.width, 34);
+            title.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+            title.alpha = 0;
+            title.transform = CGAffineTransformMakeTranslation(-cover.bounds.size.width, 0);
+            [cover addSubview:title];
+
+            [UIView animateWithDuration:0.75 delay:0.1
+                                options:UIViewAnimationOptionCurveEaseOut
+                             animations:^{
+                title.alpha = 1;
+                title.transform = CGAffineTransformIdentity;
+            } completion:nil];
+
+            // 2) 滑动验证
+            UIView *track = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 280, 56)];
+            track.center = CGPointMake(cover.bounds.size.width / 2, cover.bounds.size.height / 2 + 10);
+            track.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
+            track.layer.cornerRadius = 28;
+            track.layer.borderWidth = 1;
+            track.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
+            track.clipsToBounds = YES;
+            track.alpha = 0;
+            [cover addSubview:track];
+
+            UILabel *tip = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 280, 56)];
+            tip.text = @"→  滑动验证";
+            tip.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+            tip.textColor = [UIColor colorWithWhite:0.6 alpha:1];
+            tip.textAlignment = NSTextAlignmentCenter;
+            [track addSubview:tip];
+
+            UIView *knob = [[UIView alloc] initWithFrame:CGRectMake(4, 4, 48, 48)];
+            knob.backgroundColor = LLLAccentColor();
+            knob.layer.cornerRadius = 24;
+            track.clipsToBounds = YES;
+            [track addSubview:knob];
+
+            UILabel *knobIcon = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 48, 48)];
+            knobIcon.text = @"→";
+            knobIcon.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
+            knobIcon.textColor = UIColor.whiteColor;
+            knobIcon.textAlignment = NSTextAlignmentCenter;
+            [knob addSubview:knobIcon];
+
+            [UIView animateWithDuration:0.4 delay:0.7
+                                options:UIViewAnimationOptionCurveEaseOut
+                             animations:^{ track.alpha = 1; } completion:nil];
+
+            UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] init];
+            __block BOOL done = NO;
+            objc_setAssociatedObject(track, "bbhj.pan", pan, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            (void)pan;
+
+            // 用 target-action + 一个轻量对象承接手势
+            LLLLaunchSlider *slider = [[LLLLaunchSlider alloc] initWithTrack:track
+                                                                       knob:knob
+                                                                        tip:tip
+                                                                       cover:cover];
+            [track addGestureRecognizer:slider.pan];
+            objc_setAssociatedObject(track, "bbhj.slider", slider, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            (void)done;
         } @catch (__unused NSException *e) { }
     });
 }

@@ -83,16 +83,6 @@
                                         action:@selector(toggleCacheCleaner:) outSwitch:NULL];
     [stack addArrangedSubview:cacheCleanerRow];
 
-    // 主题色
-    UISegmentedControl *themeSeg =
-        [[UISegmentedControl alloc] initWithItems:@[@"蓝", @"青", @"紫", @"橙", @"粉"]];
-    themeSeg.selectedSegmentIndex = LLLThemeIndexValue();
-    themeSeg.selectedSegmentTintColor = LLLAccentColor();
-    themeSeg.translatesAutoresizingMaskIntoConstraints = NO;
-    [themeSeg addTarget:self action:@selector(themeChanged:) forControlEvents:UIControlEventValueChanged];
-    [stack addArrangedSubview:themeSeg];
-    [themeSeg.heightAnchor constraintEqualToConstant:34].active = YES;
-
     self.modeSegment = [[UISegmentedControl alloc] initWithItems:@[@"固定", @"定时"]];
     self.modeSegment.selectedSegmentIndex = self.bgMode;
     self.modeSegment.translatesAutoresizingMaskIntoConstraints = NO;
