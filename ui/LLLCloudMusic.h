@@ -1,6 +1,6 @@
 //
 //  LLLCloudMusic.h
-//  网易云音乐：扫码登录 + 我喜欢的音乐 + 播放直链
+//  网易云音乐：扫码 / 手机号 / 手动 Cookie 三种登录，歌单、搜索、取流
 //
 
 #import <UIKit/UIKit.h>
@@ -11,23 +11,38 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)shared;
 
-@property (nonatomic, assign, readonly) BOOL loggedIn;
+@property (nonatomic, readonly) BOOL loggedIn;
 @property (nonatomic, copy, readonly, nullable) NSString *nickname;
+@property (nonatomic, assign, readonly) long long uid;
 
-/// 开始扫码登录。qr 回调在拿到二维码时触发一次；status 每次轮询状态变化都会调。
+#pragma mark - 登录
+
 - (void)startLoginWithQR:(void (^)(UIImage * _Nullable qr, NSString *status))progress
               completion:(void (^)(BOOL ok, NSString *msg))done;
 
+- (void)loginWithPhone:(NSString *)phone
+              password:(NSString *)password
+            completion:(void (^)(BOOL ok, NSString *msg))done;
+
+/// rawCookie 形如 "MUSIC_U=xxxx; __csrf=yyyy"
+- (void)loginWithCookie:(NSString *)rawCookie
+             completion:(void (^)(BOOL ok, NSString *msg))done;
+
 - (void)cancelLogin;
 
-/// 拉「我喜欢的音乐」全部曲目：每项 {id, name, artist}
-- (void)loadLikedSongs:(void (^)(NSArray<NSDictionary *> * _Nullable songs, NSString * _Nullable err))done;
+#pragma mark - 内容
 
-/// 拿播放直链（返回后可交给 AVPlayer）
+- (void)loadLikedSongs:(void (^)(NSArray<NSDictionary *> * _Nullable songs, NSString * _Nullable err))done;
+- (void)loadPlaylist:(NSNumber *)pid
+                done:(void (^)(NSArray<NSDictionary *> * _Nullable songs, NSString * _Nullable err))done;
 - (void)searchSongs:(NSString *)keyword
                done:(void (^)(NSArray<NSDictionary *> * _Nullable songs, NSString * _Nullable err))done;
 
+/// 返回可直接喂给 AVPlayer 的地址
 - (void)resolvePlayURL:(NSNumber *)songID done:(void (^)(NSURL * _Nullable url, NSString * _Nullable err))done;
+
+/// 异步取封面
+- (void)loadArtwork:(nullable NSString *)url done:(void (^)(UIImage * _Nullable img))done;
 
 - (void)logout;
 

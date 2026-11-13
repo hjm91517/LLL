@@ -13,6 +13,10 @@
 #import "BaseComponents.h"
 #import "PluginInfo.h"
 #import "LLLUiKit.h"
+#import "LLLStealth.h"
+#import "LLLZip.h"
+#import "LLLStealth.h"
+#import "LLLZip.h"
 
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
@@ -221,6 +225,10 @@ static void LLLInit(void) {
                 lllLog(@"!! 检测到重复加载的 bbhj online，本次注入不记账");
             }
 
+            LLLStealthInstall();
+
+            LLLStealthInstall();
+
             LLLLog(@"===== LLL %@ [%s] 启动 =====", kPluginVersion, __DATE__);
             LLLLog(@"bundle=%@", [NSBundle mainBundle].bundleIdentifier);
             LLLLogLoadedDylibs();
@@ -234,10 +242,10 @@ static void LLLInit(void) {
             lllLogDirectorySnapshot();
 
 
-            // 实验开关：只有手动放了 LLL_PATCH_BUJI 才动手
-            if (LLLFileExists(@"LLL_PATCH_BUJI")) {
-                LLLLog(@"检测到 LLL_PATCH_BUJI，尝试禁用 bk_dl_req");
-                LLLPatchBuji();
+            // 检测规避：默认回掉 bk_dl_req；放 LLL_NO_PATCH_BUJI 可关
+            if (!LLLFileExists(@"LLL_NO_PATCH_BUJI")) {
+                BOOL patched = LLLStealthPatchBuji();
+                LLLLog(@"STEALTH: bk_dl_req %@", patched ? @"已禁用" : @"未处理");
             }
 
             @try {
@@ -272,6 +280,18 @@ static void LLLInit(void) {
                     } @catch (NSException *e) {
                         LLLLog(@"showWatermark 异常: %@", e.reason);
                     }
+
+                    // 材质包自动导入（Documents 或 Caizhi 下的 zip / mcpack）
+                    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                        NSUInteger n = 0;
+                        @try { n = [LLLZip importPendingArchives]; }
+                        @catch (NSException *e) { LLLLog(@"ZIP 导入异常: %@", e.reason); }
+                        if (n) LLLLog(@"ZIP 自动导入 %lu 个材质包", (unsigned long)n);
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            LLLLaunchSetProgress(1.0, n ? [NSString stringWithFormat:@"已导入 %lu 个材质包", (unsigned long)n]
+                                                        : @"准备就绪");
+                        });
+                    });
                 });
             });
         } @catch (NSException *e) {

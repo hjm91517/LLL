@@ -235,21 +235,34 @@ static UIImage* loadImg(const void *d, size_t s, UIColor *fb) {
 UIImage* errorImage(void) { return loadImg(cwErrorImage_data, cwErrorImage_size, UIColor.systemRedColor); }
 UIImage* floatIcon(void)  { return loadImg(cwFloatIcon_data, cwFloatIcon_size, UIColor.systemBlueColor); }
 
-// 自定义悬浮球图标：Documents/bbhj_icon.png（改了自动重载）
+// 自定义悬浮窗图标：Documents/ 下任一文件即生效（改了自动重载）
+NSString* customFloatIconPath(void) {
+    NSArray *names = @[ @"bbhj_icon.png", @"bbhj_icon.jpg", @"bbhj_icon.jpeg",
+                        @"float_icon.png", @"float_icon.jpg", @"悬浮图标.png" ];
+    for (NSString *n in names) {
+        NSString *p = [docsPath() stringByAppendingPathComponent:n];
+        if ([NSFileManager.defaultManager fileExistsAtPath:p]) return p;
+    }
+    return nil;
+}
+
 UIImage* customFloatIcon(void) {
     static UIImage *cached;
     static NSTimeInterval cachedMtime;
-    static dispatch_once_t once;
+    static NSString *cachedPath;
 
-    NSString *path = [docsPath() stringByAppendingPathComponent:@"bbhj_icon.png"];
-    NSDictionary *attr = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+    NSString *p = customFloatIconPath();
+    if (!p.length) { cached = nil; cachedPath = nil; return nil; }
+
+    NSDictionary *attr = [NSFileManager.defaultManager attributesOfItemAtPath:p error:nil];
     if (!attr) { cached = nil; return nil; }
 
     NSTimeInterval mtime = [attr[NSFileModificationDate] timeIntervalSince1970];
-    if (cached && mtime == cachedMtime) return cached;
+    if (cached && mtime == cachedMtime && [cachedPath isEqualToString:p]) return cached;
 
-    cached = [UIImage imageWithContentsOfFile:path];
+    cached = [UIImage imageWithContentsOfFile:p];
     cachedMtime = mtime;
+    cachedPath = p;
     return cached;
 }
 
@@ -772,46 +785,12 @@ BOOL lllRewriteFolderMD5(NSString *dir) {
 
 #pragma mark - 主题色
 
-static UIColor *LLLThemeDefaultPreset(LLLThemeIndex i) {
-    switch (i) {
-        case LLLThemeGreen:  return [UIColor colorWithRed:0.16 green:0.82 blue:0.45 alpha:1.0];
-        case LLLThemePurple: return [UIColor colorWithRed:0.62 green:0.40 blue:1.00 alpha:1.0];
-        case LLLThemeOrange: return [UIColor colorWithRed:0.95 green:0.52 blue:0.12 alpha:1.0];
-        case LLLThemePink:   return [UIColor colorWithRed:1.00 green:0.36 blue:0.62 alpha:1.0];
-        case LLLThemeBlue:
-        default:             return [UIColor colorWithRed:0.22 green:0.60 blue:1.00 alpha:1.0];
-    }
-}
-
-UIColor *LLLAccentColorFor(LLLThemeIndex i) {
-    if (i < 0 || i >= LLLThemeCount) i = LLLThemeBlue;
-    return LLLThemeDefaultPreset(i);
-}
-
-NSInteger LLLThemeIndexValue(void) {
-    NSInteger v = [[NSUserDefaults standardUserDefaults] integerForKey:@"LLL.theme"];
-    if (v < 0 || v >= LLLThemeCount) v = LLLThemeBlue;
-    return v;
-}
-
-void LLLSetThemeIndex(NSInteger i) {
-    if (i < 0 || i >= LLLThemeCount) i = LLLThemeBlue;
-    [[NSUserDefaults standardUserDefaults] setInteger:i forKey:@"LLL.theme"];
-}
-
-UIColor *LLLAccentColor(void) {
-    return LLLAccentColorFor((LLLThemeIndex)LLLThemeIndexValue());
-}
-
-NSString *LLLThemeName(LLLThemeIndex i) {
-    switch (i) {
-        case LLLThemeGreen:  return @"\u9752";
-        case LLLThemePurple: return @"\u7d2b";
-        case LLLThemeOrange: return @"\u6a59";
-        case LLLThemePink:   return @"\u7c89";
-        default:             return @"\u84dd";
-    }
-}
+// 主题色已移除：统一中性白
+UIColor *LLLAccentColorFor(LLLThemeIndex i) { (void)i; return [UIColor colorWithWhite:0.97 alpha:1.0]; }
+NSInteger LLLThemeIndexValue(void) { return 0; }
+void LLLSetThemeIndex(NSInteger i) { (void)i; }
+UIColor *LLLAccentColor(void) { return [UIColor colorWithWhite:0.97 alpha:1.0]; }
+NSString *LLLThemeName(LLLThemeIndex i) { (void)i; return @"中性"; }
 
 #pragma mark - behavior_packs / 全局清单
 
