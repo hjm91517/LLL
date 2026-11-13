@@ -8,8 +8,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// 启动动画："欢迎使用材质注入器"
+/// 启动动画（旧，未使用）
 void LLLShowSplash(void);
+
+/// 启动序列：标题滑入 + 滑动验证 + 初始化进度
+void LLLShowLaunch(void);
 
 /// 通用弹层（底部卡片）。buttons 里每一项是一个按钮标题，回调给下标。
 void LLLShowSheet(NSString *title,
