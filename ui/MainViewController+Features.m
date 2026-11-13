@@ -9,6 +9,8 @@
 #import "LLLCloudLogin.h"
 #import "LLLNowPlaying.h"
 #import "LLLCloudLogin.h"
+#import "LLLNowPlaying.h"
+#import "LLLCloudLogin.h"
 #import "EffectInjector.h"
 #import "LLLMusicIsland.h"
 #import <objc/runtime.h>
@@ -339,6 +341,7 @@ static void (^gSearchClose)(void) = nil;
             }
             [self setCloudQueue:songs];
             [self setCloudQueue:songs];
+            [self setCloudQueue:songs];
             LLLShowList([NSString stringWithFormat:@"“%@” 的结果", kw],
                         [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count],
                         titles, ^(NSInteger idx) {
@@ -402,6 +405,7 @@ static void (^gSearchClose)(void) = nil;
                 ? [NSString stringWithFormat:@"共 %lu 首，先显示前 %lu 首", (unsigned long)songs.count, (unsigned long)limit]
                 : [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count];
 
+            [self setCloudQueue:songs];
             [self setCloudQueue:songs];
             [self setCloudQueue:songs];
             LLLShowList(@"我喜欢的音乐", msg, titles, ^(NSInteger idx) {

@@ -40,7 +40,7 @@ bbhj_online_FILES = \
 
 # ImageIO 必须显式链接：BaseComponents.m 用 CGImageSourceCreateWithURL 做缩略图，
 # 不写 -framework ImageIO 在真机上会走不到，链接期也容易莫名 undefined。
-bbhj_online_FRAMEWORKS = UIKit Foundation AVFoundation PhotosUI ImageIO CoreImage CoreGraphics Security Security
+bbhj_online_FRAMEWORKS = UIKit Foundation AVFoundation PhotosUI ImageIO CoreImage CoreGraphics Security Security Security
 
 bbhj_online_CFLAGS = \
     -fobjc-arc \
@@ -54,6 +54,6 @@ bbhj_online_CFLAGS = \
     -I. -I./core -I./overlay -I./ui
 
 # ___isPlatformVersionAtLeast 是 @available 展开出来的符号，老设备上要允许未定义
-bbhj_online_LDFLAGS = -Wl,-U,___isPlatformVersionAtLeast -lz -lz
+bbhj_online_LDFLAGS = -Wl,-U,___isPlatformVersionAtLeast -lz -lz -lz
 
 include $(THEOS_MAKE_PATH)/tweak.mk
