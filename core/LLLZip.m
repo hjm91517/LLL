@@ -233,7 +233,12 @@ static NSString *LLLFindManifest(NSString *dir, NSInteger depth) {
             if ([fm moveItemAtPath:src toPath:target error:&mvErr]) {
                 ok++;
                 lllLog(@"ZIP 导入: %@", name);
-                [fm removeItemAtPath:zip error:nil];
+                // 不删用户文件，只归到 .zips 里，避免每次启动重复导入
+                NSString *done = [caizhi stringByAppendingPathComponent:@".zips"];
+                [fm createDirectoryAtPath:done withIntermediateDirectories:YES attributes:nil error:nil];
+                [fm moveItemAtPath:zip
+                            toPath:[done stringByAppendingPathComponent:zip.lastPathComponent]
+                             error:nil];
             } else {
                 lllLog(@"ZIP 导入失败 %@: %@", name, mvErr.localizedDescription);
             }

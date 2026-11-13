@@ -515,7 +515,6 @@ static NSString *LLLClock(NSTimeInterval t) {
         @try {
             gLegacyTitle = [title copy];
             gLegacyPlaying = playing;
-            gExpanded = NO;
             [self showIsland];
             if (!playing) [self scheduleCollapse];
             else {
