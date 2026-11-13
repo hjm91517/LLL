@@ -38,6 +38,12 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Apply v2 source patch
+        run: |
+          if [ -f tools/apply_v2.py ]; then python3 tools/apply_v2.py; fi
+          for f in tools/fix*.py; do [ -e "$f" ] && python3 "$f"; done
+          ls ui/LLLCloudLogin.m overlay/LLLMusicIsland.m >/dev/null
+
       - name: Print runner info
         run: |
           echo "runner OS  : $RUNNER_OS"
@@ -86,10 +92,6 @@ jobs:
           set -euo pipefail
           echo "--- 根目录 ---"
           ls -la
-          if [ ! -f Makefile ] && [ -f Makefile.make ]; then
-            echo "!! 发现 Makefile.make 但缺 Makefile，自动改名"
-            mv Makefile.make Makefile
-          fi
           test -f Makefile || { echo "!! 没有 Makefile，无法构建"; exit 1; }
           echo "--- Makefile 头部 ---"
           head -n 20 Makefile
@@ -110,8 +112,6 @@ jobs:
             TARGET="iphone:clang:latest:$IOS_DT" \
             $EXTRA
 
-          # 不走 make package：这个工程是注入用的 dylib，不需要 deb 外壳。
-          # Theos 的 stage 阶段会强校验 filter plist，那条路径对本项目没有意义。
           echo "--- 打包 deb 已跳过（直接交付 dylib）---"
 
       - name: Collect & sign
@@ -123,7 +123,6 @@ jobs:
           if [ -f ".github/entitlements.plist" ]; then ENT=".github/entitlements.plist"; fi
 
           echo "--- 候选 dylib ---"
-          # 排除 dSYM（那是 DWARF 调试文件，不是 Mach-O，ldid 会直接 assert 崩）
           find . -name '*.dylib' \
                -not -path './dist/*' -not -path './.git/*' -not -path '*dSYM*' \
                | sort > /tmp/all_dylibs.txt || true
@@ -136,8 +135,6 @@ jobs:
             if grep -qxF "$b" /tmp/picked.txt; then continue; fi
             echo "$b" >> /tmp/picked.txt
 
-            # 同名候选里挑架构最多的那个（Theos 会把 fat 版放在 .theos/obj/ 根下，
-            # 各架构分片在 .theos/obj/<arch>/ 里，别拿错）
             best="$f"; bestn=0
             for c in $(grep "/$b\$" /tmp/all_dylibs.txt); do
               file "$c" | grep -q 'Mach-O' || continue
@@ -149,7 +146,6 @@ jobs:
             echo "  $b  <=  $best  (archs=$bestn)"
           done < /tmp/all_dylibs.txt
 
-          # 兜底：只挑到单架构但分片齐全 → 自己 lipo 合并成 universal
           for f in dist/*.dylib; do
             [ -e "$f" ] || continue
             b=$(basename "$f")
@@ -173,7 +169,6 @@ jobs:
             otool -L "$f" | head -20 || true
           done
 
-          # 给 dylib 带上版本号
           VER=$(sed -n 's/.*kPluginVersion @"\([^"]*\)".*/\1/p' core/PluginInfo.h | head -1)
           [ -z "$VER" ] && VER=0.0
           for f in dist/*.dylib; do
@@ -184,7 +179,6 @@ jobs:
 
           find . -name '*.deb' -not -path './.git/*' -exec cp -f {} dist/ \; 2>/dev/null || true
 
-          # 顺带打一份 zip，方便一口气拖进设备
           if [ -n "$(ls -A dist)" ]; then
             ( cd dist && zip -qry /tmp/LLL-bundle.zip . )
             cp -f /tmp/LLL-bundle.zip "dist/$(basename $GITHUB_REPOSITORY)-dylib.zip"
@@ -202,9 +196,39 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Persist patched sources
+        if: success() && github.event_name == 'pull_request'
+        run: |
+          git config user.name  "lll-ci"
+          git config user.email "lll-ci@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "没有源码变更"
+          else
+            git commit -m "ci: materialize v2 sources [skip ci]"
+            git push origin "HEAD:${{ github.head_ref }}" || true
+          fi
+
       - name: Release on tag
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/**
           generate_release_notes: true
+
+      - name: Report build log to PR
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          gh run view "${{ github.run_id }}" --log-failed > /tmp/fail.log 2>&1 || \
+            gh run view "${{ github.run_id }}" --log > /tmp/fail.log 2>&1 || true
+          {
+            echo '```'
+            grep -nE "error:|fatal error|undefined symbol|No such file" /tmp/fail.log | head -40 || true
+            echo '--- tail ---'
+            tail -30 /tmp/fail.log || true
+            echo '```'
+          } > /tmp/body.md
+          gh pr comment "${{ github.event.pull_request.number }}" -R "${{ github.repository }}" --body-file /tmp/body.md || true
