@@ -1,0 +1,40 @@
+name: v2 diag
+
+on:
+  workflow_run:
+    workflows: [ "Build Dylib" ]
+    types: [ completed ]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  report:
+    if: github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment failed log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          RID=${{ github.event.workflow_run.id }}
+          gh run view "$RID" --repo "${{ github.repository }}" --log-failed > /tmp/f.log 2>&1 || \
+            gh run view "$RID" --repo "${{ github.repository }}" --log > /tmp/f.log 2>&1 || true
+          PR=$(gh api "repos/${{ github.repository }}/actions/runs/$RID" --jq '.pull_requests[0].number' 2>/dev/null || echo "")
+          {
+            echo 'v2 构建失败，日志摘要：'
+            echo '```'
+            grep -nE "Traceback|Error|error:|fatal|FAILED|No such file|undefined" /tmp/f.log | head -60 || true
+            echo '--- tail ---'
+            tail -40 /tmp/f.log || true
+            echo '```'
+          } > /tmp/b.md
+          if [ -n "$PR" ] && [ "$PR" != "null" ]; then
+            gh pr comment "$PR" --repo "${{ github.repository }}" --body-file /tmp/b.md || true
+          else
+            echo "no PR attached"; cat /tmp/b.md
+          fi
