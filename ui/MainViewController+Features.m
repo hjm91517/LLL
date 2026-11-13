@@ -6,6 +6,7 @@
 #import "LLLUiKit.h"
 #import "LLLCloudMusic.h"
 #import "EffectInjector.h"
+#import "LLLMusicIsland.h"
 #import <objc/runtime.h>
 #import <objc/runtime.h>
 #import <AVFoundation/AVFoundation.h>
@@ -177,6 +178,17 @@ static void (^gLLLCloseCloudCard)(void) = nil;
         } else {
             [self.playerCover.layer removeAnimationForKey:@"lll.spin"];
         }
+    }
+
+    // 顶部灵动岛胶囊
+    if (self.isPlaying) {
+        NSString *t = (self.currentMusicIndex >= 0 &&
+                       self.currentMusicIndex < (NSInteger)self.musicNames.count)
+                      ? self.musicNames[(NSUInteger)self.currentMusicIndex]
+                      : (self.playerTitle.text ?: @"播放中");
+        [LLLMusicIsland updateTitle:t playing:YES];
+    } else {
+        [LLLMusicIsland updateTitle:nil playing:NO];
     }
 
     if (self.isPlaying) {
@@ -468,6 +480,7 @@ static void (^gSearchClose)(void) = nil;
             s.cloudPlayer = [AVPlayer playerWithURL:url];
             [s applyVolume];
             [s.cloudPlayer play];
+            [LLLMusicIsland updateTitle:(song[@"name"] ?: @"网易云") playing:YES];
             if (s.playerTitle)  s.playerTitle.text  = song[@"name"] ?: @"网易云";
             if (s.playerArtist) s.playerArtist.text = song[@"artist"] ?: @"网易云音乐";
             [s startProgressTimer];

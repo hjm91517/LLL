@@ -7,6 +7,7 @@
 #import "LLLAnim.h"
 #import "LLLUiKit.h"
 #import "LLLCloudMusic.h"
+#import "LLLMusicIsland.h"
 #import <objc/runtime.h>
 
 #import "MainViewController+SettingsBackground.h"
@@ -585,6 +586,12 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [self reloadMusicData];
     [self refreshBgFiles];
     [self updateBackground];
+
+    __weak typeof(self) wself = self;
+    [LLLMusicIsland setTapHandler:^{
+        __strong typeof(wself) ss = wself;
+        if (ss) [ss togglePlayPause];
+    }];
 
     // 首次布局后把侧栏滑块摆到「材质包」上
     __weak typeof(self) w = self;

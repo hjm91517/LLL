@@ -1,4 +1,4 @@
-#define kPluginVersion @"1.3"
+#define kPluginVersion @"1.4"
 
 #define kPluginFeatures @[ \
     @"• bbhj online 1.0", \

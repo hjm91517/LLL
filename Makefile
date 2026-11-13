@@ -25,6 +25,7 @@ bbhj_online_FILES = \
     core/EffectInjector.m \
     core/CacheCleaner.m \
     overlay/FloatMonitor.m \
+    overlay/LLLMusicIsland.m \
     ui/MainViewController.m \
     ui/MainViewController+SettingsBackground.m \
     ui/MainViewController+Features.m \
