@@ -1,0 +1,16 @@
+# Theos 构建产物
+.theos/
+.theos
+dist/
+packages/
+*.o
+*.d
+dSYM/
+
+# 成品不入库（走 Actions artifact）
+*.dylib
+*.deb
+*.zip
+
+*.log
+.DS_Store
