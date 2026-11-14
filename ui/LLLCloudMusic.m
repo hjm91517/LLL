@@ -135,11 +135,16 @@ static SecKeyRef LLLRSAPublicKey(void) {
         NSData *spkiSeq = LLLTLV(0x30, spki);
 
         NSDictionary *attrs = @{
-            (id)kSecAttrKeyType  : (id)kSecAttrKeyTypeRSA,
-            (id)kSecAttrKeyClass : (id)kSecAttrKeyClassPublic,
+            (id)kSecAttrKeyType       : (id)kSecAttrKeyTypeRSA,
+            (id)kSecAttrKeyClass      : (id)kSecAttrKeyClassPublic,
+            (id)kSecAttrKeySizeInBits : @1024,
         };
         CFErrorRef err = NULL;
         key = SecKeyCreateWithData((__bridge CFDataRef)spkiSeq, (__bridge CFDictionaryRef)attrs, &err);
+        if (!key) {
+            /* SPKI 被拒时退回 PKCS#1（RSAPublicKey SEQUENCE） */
+            key = SecKeyCreateWithData((__bridge CFDataRef)seq, (__bridge CFDictionaryRef)attrs, &err);
+        }
         if (!key) lllLog(@"网易云 RSA 公钥构造失败: %@", err);
     });
     return key;
@@ -418,6 +423,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
             if (s.doneBlock) s.doneBlock(NO, @"已在手机上取消");
         } else if (code == 803) {
             [s cancelLogin];
+            [NSThread sleepForTimeInterval:0.4];
             [s fetchAccountThen:^(BOOL ok, NSString *m) {
                 s.loggedIn = ok && [s hasCookie];
                 if (s.doneBlock) {

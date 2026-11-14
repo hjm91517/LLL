@@ -561,6 +561,7 @@ static NSString *LLLClock(NSTimeInterval t) {
                 gPill.transform = CGAffineTransformMakeScale(0.86, 0.86);
             } completion:^(BOOL f) {
                 gPill.hidden = YES;
+                gWin.hidden = YES;
                 gPill.transform = CGAffineTransformIdentity;
             }];
         } @catch (__unused NSException *e) { }
@@ -638,6 +639,7 @@ static NSString *LLLClock(NSTimeInterval t) {
         if (text.length) [t appendString:text];
         if (count > 0) [t appendFormat:@" · %lu 个", (unsigned long)count];
         gCacheLabel.text = t;
+        [self showIsland];
         gCacheLabel.textColor = isError
             ? [UIColor colorWithRed:1 green:0.42 blue:0.42 alpha:1]
             : [UIColor colorWithWhite:0.55 alpha:1];
