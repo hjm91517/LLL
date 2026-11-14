@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""v2.9：缓存文案去图标/橙→绿→消隐，岛不展开不挡手，音量显示数字，登录按 Folia 思路（cookie 优先）"""
+"""v2.9（安全版）：去清扫图标、橙→绿→消隐、缓存不展开不遮挡、版本号"""
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 log = []
@@ -12,10 +12,10 @@ def rep(p,old,new,tag):
     if old not in s: log.append('SKIP %s (%s)'%(p,tag)); return
     wr(p,s.replace(old,new,1)); log.append('patch %s (%s)'%(p,tag))
 
-# 1. 去清扫图标 + 橙/绿配色 + 3s 后自动清空
-rep('overlay/LLLMusicIsland.m',
-    '            [t appendString:@"🧹 "];', '', 'broom')
+# 1. 去清扫图标
+rep('overlay/LLLMusicIsland.m', '            [t appendString:@"🧹 "];', '', 'broom')
 
+# 2. 颜色：发现=橙，已清除=绿，错误=红；3s 后清空
 rep('overlay/LLLMusicIsland.m',
     '''        gCacheLabel.textColor = isError
             ? [UIColor colorWithRed:1 green:0.42 blue:0.42 alpha:1]
@@ -40,26 +40,10 @@ rep('overlay/LLLMusicIsland.m',
 
 + (void)showCacheStatus:(NSString *)text count:(NSUInteger)count isError:(BOOL)isError {''', 'clear method')
 
-# 2. 缓存状态不展开岛（避免大面积遮挡）
+# 3. 不展开岛，避免大面积遮挡
 rep('overlay/LLLMusicIsland.m', '        [self showIsland];', '        /* v2.9: 只更新胶囊文字，不展开、不遮挡 */', 'no expand')
 
-# 3. 铃叭→ 数字音量
-rep('overlay/LLLMusicIsland.m',
-    '''        float v = [[NSUserDefaults standardUserDefaults] floatForKey:@"LLL.volume"];''',
-    '''        float v = [[NSUserDefaults standardUserDefaults] floatForKey:@"LLL.volume"];
-        gVolLabel.text = [NSString stringWithFormat:@"%d%%", (int)roundf(v * 100)];
-        gVolLabel.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightBold];
-        gVolLabel.textColor = [UIColor colorWithWhite:0.9 alpha:1];
-        gVolLabel.textAlignment = NSTextAlignmentCenter;''', 'vol label')
-
-# 4. 登录：cookie 优先（Folia 思路），有 MUSIC_U 直接跳过扫码
-rep('ui/LLLCloudLogin.m',
-    '    LLLCloudMusic *cm = [LLLCloudMusic shared];\n    if (cm.loggedIn) {',
-    '''    LLLCloudMusic *cm = [LLLCloudMusic shared];
-    if (!cm.loggedIn) [cm restoreCookieSession];   /* Folia 思路：本地 cookie 先复活会话 */
-    if (cm.loggedIn) {''', 'cookie restore')
-
-# 5. 版本
+# 4. 版本
 rep('core/PluginInfo.h', '#define kPluginVersion @"2.8"', '#define kPluginVersion @"2.9"', 'version')
 
 for l in log: print(l)
