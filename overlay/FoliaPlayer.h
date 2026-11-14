@@ -22,4 +22,6 @@ NS_ASSUME_NONNULL_BEGIN
 /// 重新加载页面
 + (void)reload;
 
+@end
+
 NS_ASSUME_NONNULL_END
