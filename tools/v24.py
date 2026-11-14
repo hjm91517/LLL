@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""v2.4：
-1) 音乐页只留一份播放 UI（playerCard），隐藏旧底部 musicControlBar
-2) 悬浮球长按换图标（相册选图 → Documents/bbhj_icon.png → 即时重载）
-3) 版本号 2.4
-幂等：拿不到锚点就跳过。"""
+"""v2.4/v2.5 累积补丁（幂等）：
+2.4  单播放 UI、长按换悬浮图标、版本号
+2.5  缓存清理静默、监控数组越界防护、dylib 的 stat/access 隐藏
+"""
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -21,22 +20,19 @@ def wr(p, s):
 def rep(p, old, new, tag):
     s = rd(p)
     if old not in s:
-        log.append('skip  %s (%s)' % (p, tag))
+        log.append('SKIP  %s (%s)' % (p, tag))
         return
     wr(p, s.replace(old, new, 1))
     log.append('patch %s (%s)' % (p, tag))
 
-# ---------- 1. 去掉重复播放 UI ----------
+# ============ 2.4 ============
 rep('ui/MainViewController.m',
     '    self.musicControlBar.alpha = 1;',
-    '    // v2.4: 只留 playerCard 一套播放 UI，旧底部控制栏彻底隐藏\n'
-    '    self.musicControlBar.hidden = YES;\n    self.musicControlBar.alpha = 0;', 'hide control bar')
+    '    // 2.4: 只留 playerCard 一套播放 UI\n'
+    '    self.musicControlBar.hidden = YES;\n    self.musicControlBar.alpha = 0;', 'hide bar')
 
-rep('ui/MainViewController.m',
-    'bar:self.musicControlBar];',
-    'bar:nil];', 'music tab bar nil')
+rep('ui/MainViewController.m', 'bar:self.musicControlBar];', 'bar:nil];', 'bar nil')
 
-# ---------- 2. 悬浮球长按换图标 ----------
 rep('overlay/FloatMonitor.m',
     '@implementation FloatingBallView {',
     '''static UIViewController *LLLTopVC(void) {
@@ -61,7 +57,7 @@ rep('overlay/FloatMonitor.m',
 - (void)reloadIcon;
 @end
 
-@implementation FloatingBallView {''', 'top vc + delegate')
+@implementation FloatingBallView {''', 'top vc')
 
 rep('overlay/FloatMonitor.m',
     '        [self addGestureRecognizer:_pan];',
@@ -69,14 +65,11 @@ rep('overlay/FloatMonitor.m',
     '        UILongPressGestureRecognizer *lp =\n'
     '            [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPress:)];\n'
     '        lp.minimumPressDuration = 0.6;\n'
-    '        lp.cancelsTouchesInView = YES;\n'
     '        [self addGestureRecognizer:lp];', 'long press')
 
 rep('overlay/FloatMonitor.m',
     '- (void)tap { toggleMainWindow(); }',
     '''- (void)tap { toggleMainWindow(); }
-
-#pragma mark - 自定义图标
 
 - (void)longPress:(UILongPressGestureRecognizer *)g {
     if (g.state != UIGestureRecognizerStateBegan) return;
@@ -97,7 +90,6 @@ rep('overlay/FloatMonitor.m',
     [picker dismissViewControllerAnimated:YES completion:nil];
     if (!img) return;
 
-    // 统一缩到 256x256，不占空间也不糊
     UIGraphicsBeginImageContextWithOptions(CGSizeMake(256, 256), NO, 1);
     [img drawInRect:CGRectMake(0, 0, 256, 256)];
     UIImage *out = UIGraphicsGetImageFromCurrentImageContext();
@@ -119,8 +111,65 @@ rep('overlay/FloatMonitor.m',
     _btn.imageView.contentMode = UIViewContentModeScaleAspectFill;
 }''', 'icon picker')
 
-# ---------- 3. 版本号 ----------
-rep('core/PluginInfo.h', '#define kPluginVersion @"2.3"', '#define kPluginVersion @"2.4"', 'version')
+rep('core/PluginInfo.h', '#define kPluginVersion @"2.3"', '#define kPluginVersion @"2.5"', 'version')
+
+# ============ 2.5 ============
+# 缓存清理：没扫到东西就完全静默（不再每 30s 冒一个胶囊）
+rep('core/CacheCleaner.m',
+    '''            if (found == 0) {
+                [self showDynamicIslandWithTitle:@"无缓存" count:0 isError:NO];
+            } else {''',
+    '''            if (found == 0) {
+                // 2.5: 无缓存时静默，不弹胶囊
+            } else {''', 'silent empty')
+
+# 监控面板：数组越界防护
+rep('overlay/FloatMonitor.m',
+    '        _cpuL = valArr[0]; _memL = valArr[1]; _fpsL = valArr[2];',
+    '        if (valArr.count >= 3) { _cpuL = valArr[0]; _memL = valArr[1]; _fpsL = valArr[2]; }',
+    'valArr guard')
+
+# 检测规避：隐藏 dylib 的 stat / lstat / access
+rep('core/LLLStealth.m',
+    '#pragma mark - 文件枚举过滤',
+    '''#pragma mark - 裸 stat / access 隐藏
+
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
+static BOOL LLLHideCPath(const char *p) {
+    if (!p || !strstr(p, ".dylib")) return NO;
+    return strstr(p, "bbhj") || strstr(p, "lll_") || strstr(p, "LLL_") ||
+           strstr(p, "MaterialPackManager");
+}
+
+static int LLLFakeStat(const char *path, struct stat *buf) {
+    if (LLLHideCPath(path)) { errno = ENOENT; return -1; }
+    return fstatat(AT_FDCWD, path, buf, 0);
+}
+
+static int LLLFakeLstat(const char *path, struct stat *buf) {
+    if (LLLHideCPath(path)) { errno = ENOENT; return -1; }
+    return fstatat(AT_FDCWD, path, buf, AT_SYMLINK_NOFOLLOW);
+}
+
+static int LLLFakeAccess(const char *path, int mode) {
+    if (LLLHideCPath(path)) { errno = ENOENT; return -1; }
+    return faccessat(AT_FDCWD, path, mode, 0);
+}
+
+__attribute__((used)) static const LLLInterpose LLLInterposeStat
+    __attribute__((section("__DATA,__interpose"))) = {
+        (const void *)&LLLFakeStat, (const void *)&stat };
+__attribute__((used)) static const LLLInterpose LLLInterposeLstat
+    __attribute__((section("__DATA,__interpose"))) = {
+        (const void *)&LLLFakeLstat, (const void *)&lstat };
+__attribute__((used)) static const LLLInterpose LLLInterposeAccess
+    __attribute__((section("__DATA,__interpose"))) = {
+        (const void *)&LLLFakeAccess, (const void *)&access };
+
+#pragma mark - 文件枚举过滤''', 'stat interpose')
 
 for l in log:
     print(l)
