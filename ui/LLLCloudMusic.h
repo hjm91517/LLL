@@ -44,12 +44,6 @@ NS_ASSUME_NONNULL_BEGIN
 /// 异步取封面
 - (void)loadArtwork:(nullable NSString *)url done:(void (^)(UIImage * _Nullable img))done;
 
-/// 外部播放器（Folii 路线）：登录/取流留在这里，播放交给已装的 App。
-/// 返回 YES 表示已经递出去了，调用方不要再起内置播放器。
-+ (BOOL)sendToExternalPlayer:(NSURL *)url title:(nullable NSString *)title;
-+ (BOOL)externalPlayerEnabled;
-+ (void)setExternalPlayerEnabled:(BOOL)on;
-
 - (void)logout;
 
 @end
