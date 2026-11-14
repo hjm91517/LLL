@@ -57,8 +57,6 @@ make clean all FINALPACKAGE=1 DEBUG=0 ARCHS="arm64 arm64e" TARGET="iphone:clang:
 | 灵动岛占全屏 / 遮挡游戏 | 宿主窗口整屏铺开，胶囊只是其中一小块 | 窗口尺寸 = 胶囊尺寸，展开时窗口跟着变大；宿主/根视图/胶囊同框 |
 | 面板被刘海和 Home 条压住 | 卡片上下边距写死 20pt，忽略安全区 | 边距跟随 `safeAreaInsets`，`viewDidLayoutSubviews` 里实时校正 |
 | 手机号登录大概率失败 | `params` 的 base64 用 `URLQueryAllowedCharacterSet`，`+` 没转义 → 服务端当空格 | 表单值走 RFC3986 严格编码（`LLLFormEncode`） |
-| 网易云"显示在播放但没声音" | 接口给的 302 地址可能落到 403 页面，AVPlayer 静默失败 | 候选地址逐个 HEAD 探测（200/206 + audio/*），全挂才报错 |
-| 灵动岛点"网易云"没反应 | 临时 new 的 MainViewController 没人持有，ARC 立刻回收，回调打在 nil 上 | 常驻宿主 `MainViewController.cloudHost`，浮窗创建时登记 |
 | 关掉登录卡片后仍会突然弹"登录成功" | 二维码轮询没停 | `dismissCloudLoginCard` 里 `cancelLogin` |
 
 ## Folia 播放器（3.4 起）
@@ -70,3 +68,9 @@ make clean all FINALPACKAGE=1 DEBUG=0 ARCHS="arm64 arm64e" TARGET="iphone:clang:
 - 内联播放 + 不要求用户手势；进页面时把 `AVAudioSession` 设成 `Playback`，静音键开着也出声
 - 切到别的页只 `hidden`，不销毁，播放/曲库状态都留着
 - 原来的「外部播放器播放 (Folii)」开关和 `folii://` 跳转代码已删除
+
+## 3.5 精简
+
+- 删除网易云登录整条链路：`LLLCloudMusic.{h,m}`、`LLLCloudLogin.{h,m}`、`LOGIN.md`，以及面板/灵动岛上的所有「网易云」入口与 `cloudPlayer`
+- 音乐页只跑 Folia，播放/曲库/歌词全部由 Folia 自己负责，不再有第二套播放器抢 AVAudioSession
+- 灵动岛去掉 emoji：清缓存提示改纯文字，音量图标换 SF Symbol（`speaker.wave.*`）

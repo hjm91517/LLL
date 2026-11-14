@@ -6,7 +6,6 @@
 #import "PluginInfo.h"
 #import "LLLAnim.h"
 #import "LLLUiKit.h"
-#import "LLLCloudMusic.h"
 #import "LLLMusicIsland.h"
 #import "FoliaPlayer.h"
 #import <objc/runtime.h>
@@ -438,22 +437,6 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [_volumeSlider addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged];
     [_musicControlBar addSubview:_volumeSlider];
 
-    UIButton *cloudBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    cloudBtn.translatesAutoresizingMaskIntoConstraints = NO;
-    if (@available(iOS 13.0, *)) {
-        UIImageSymbolConfiguration *cfg =
-            [UIImageSymbolConfiguration configurationWithPointSize:16 weight:UIImageSymbolWeightSemibold];
-        [cloudBtn setImage:[UIImage systemImageNamed:@"cloud.fill" withConfiguration:cfg]
-                  forState:UIControlStateNormal];
-    }
-    [cloudBtn setTitle:@"云" forState:UIControlStateNormal];
-    cloudBtn.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
-    cloudBtn.tintColor = UIColor.whiteColor;
-    cloudBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
-    cloudBtn.layer.cornerRadius = 16;
-    [cloudBtn addTarget:self action:@selector(openCloudMusic) forControlEvents:UIControlEventTouchUpInside];
-    [_musicControlBar addSubview:cloudBtn];
-
     [NSLayoutConstraint activateConstraints:@[
         [_nowPlayingLabel.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:20],
         [_nowPlayingLabel.topAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:10],
@@ -468,12 +451,8 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         [_volumeSlider.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:20],
         [_volumeSlider.bottomAnchor constraintEqualToAnchor:_musicControlBar.bottomAnchor constant:-14],
         [_volumeSlider.heightAnchor constraintEqualToConstant:26],
-        [_volumeSlider.trailingAnchor constraintEqualToAnchor:cloudBtn.leadingAnchor constant:-12],
+        [_volumeSlider.trailingAnchor constraintEqualToAnchor:_musicControlBar.trailingAnchor constant:-16],
 
-        [cloudBtn.trailingAnchor constraintEqualToAnchor:_musicControlBar.trailingAnchor constant:-16],
-        [cloudBtn.bottomAnchor constraintEqualToAnchor:_musicControlBar.bottomAnchor constant:-10],
-        [cloudBtn.widthAnchor constraintEqualToConstant:44],
-        [cloudBtn.heightAnchor constraintEqualToConstant:34],
     ]];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -712,19 +691,6 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     UIButton *next = [self playerButton:@"forward.fill" size:20 side:44 action:@selector(nextMusic)];
     _playerModeBtn = [self playerButton:@"repeat" size:18 side:44 action:@selector(switchLoopMode)];
 
-    // 网易云入口（登录 / 我喜欢的 / 搜索）
-    _playerCloudBtn = [self playerButton:@"cloud.fill" size:15 side:34 action:@selector(openCloudMusic)];
-    _playerCloudBtn.backgroundColor = [LLLAccentColor() colorWithAlphaComponent:0.28];
-    /* v2.2 用户反馈找不到入口：改为带文字的「网易云」按钮 */
-    [_playerCloudBtn setTitle:@"网易云" forState:UIControlStateNormal];
-    _playerCloudBtn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
-    [_playerCloudBtn setImage:nil forState:UIControlStateNormal];
-    _playerCloudBtn.layer.cornerRadius = 17;
-    for (NSLayoutConstraint *c in _playerCloudBtn.constraints) {
-        if (c.firstAttribute == NSLayoutAttributeWidth) c.constant = 78;
-    }
-    [_playerCard addSubview:_playerCloudBtn];
-
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[prev, _playerPlayBtn, next, _playerModeBtn]];
     row.translatesAutoresizingMaskIntoConstraints = NO;
     row.axis = UILayoutConstraintAxisHorizontal;
@@ -775,10 +741,8 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         [_playerCover.heightAnchor constraintEqualToConstant:84],
 
         [_playerTitle.leadingAnchor constraintEqualToAnchor:_playerCover.trailingAnchor constant:14],
-        [_playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:_playerCloudBtn.leadingAnchor constant:-10],
+        [_playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:_playerCard.trailingAnchor constant:-16],
 
-        [_playerCloudBtn.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-16],
-        [_playerCloudBtn.topAnchor constraintEqualToAnchor:_playerCard.topAnchor constant:18],
         [_playerTitle.topAnchor constraintEqualToAnchor:_playerCover.topAnchor constant:8],
 
         [_playerArtist.leadingAnchor constraintEqualToAnchor:_playerTitle.leadingAnchor],
@@ -945,9 +909,6 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     if (_bars) {
         _bars.barColor = accent;
         [_bars setNeedsDisplay];
-    }
-    if (_playerCloudBtn) {
-        _playerCloudBtn.backgroundColor = [accent colorWithAlphaComponent:0.28];
     }
     if (_playerPlayBtn) {
         _playerPlayBtn.backgroundColor = accent;
@@ -1366,7 +1327,6 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 
     self.audioPlayer.volume = v;
     self.videoMusicPlayer.volume = v;
-    self.cloudPlayer.volume = v;
     self.bgPlayer.volume = v * 0.55f;
 
     if (_volumeSlider && fabsf(_volumeSlider.value - v) > 0.001f) _volumeSlider.value = v;
@@ -1403,9 +1363,6 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     } else if (self.videoMusicPlayer.currentItem) {
         total = CMTimeGetSeconds(self.videoMusicPlayer.currentItem.duration);
         cur = CMTimeGetSeconds(self.videoMusicPlayer.currentTime);
-    } else if (self.cloudPlayer.currentItem) {
-        total = CMTimeGetSeconds(self.cloudPlayer.currentItem.duration);
-        cur = CMTimeGetSeconds(self.cloudPlayer.currentTime);
     }
     if (total > 0.01 && !isnan(total)) {
         if (_progressSlider && !_progressSlider.isTracking)

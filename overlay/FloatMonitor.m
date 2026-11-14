@@ -1,7 +1,6 @@
 
 #import "FloatMonitor.h"
 #import "MainViewController.h"
-#import "LLLCloudLogin.h"
 #import "BaseComponents.h"
 #import <mach/mach.h>
 
@@ -105,8 +104,6 @@ void toggleMainWindow(void) {
 
         if (!g_mainVC) {
             g_mainVC = [[MainViewController alloc] init];
-            /* 登记常驻宿主：灵动岛的网易云入口直接复用这一个，回调不会打到已释放对象上 */
-            [MainViewController registerCloudHost:g_mainVC];
         }
 
         if (!g_mainContainer) {

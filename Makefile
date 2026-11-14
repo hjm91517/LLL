@@ -31,8 +31,6 @@ bbhj_online_FILES = \
     ui/MainViewController+SettingsBackground.m \
     ui/MainViewController+Features.m \
     ui/LLLUiKit.m \
-    ui/LLLCloudMusic.m \
-    ui/LLLCloudLogin.m \
     ui/LLLLaunchCard.m \
     core/LLLStealth.m \
     core/LLLZip.m \

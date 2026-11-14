@@ -6,8 +6,6 @@
 #import "LLLMusicIsland.h"
 #import "LLLNowPlaying.h"
 #import "BaseComponents.h"
-#import "LLLCloudLogin.h"
-#import "LLLCloudMusic.h"
 #import "CacheCleaner.h"
 #import <math.h>
 #import "LLLAnim.h"
@@ -32,7 +30,7 @@ static UIButton    *gPlayBtn = nil, *gPrevBtn = nil, *gNextBtn = nil, *gCloseBtn
 /* v2.2 新增：可拖进度条 / 独立音量 / 网易云入口 / 清缓存整合 */
 static UISlider    *gSeekSld = nil, *gVolSld = nil;
 static UILabel     *gVolIcon = nil, *gCacheLabel = nil;
-static UIButton    *gCloudBtn = nil, *gCacheBtn = nil;
+static UIButton    *gCacheBtn = nil;
 static BOOL         gSeeking = NO, gVolDragging = NO;
 
 static NSTimer     *gTick = nil, *gCollapseTimer = nil;
@@ -88,13 +86,32 @@ static void (^gTapHandler)(void) = nil;
 + (void)seekChanged:(UISlider *)sld;
 + (void)seekEnded:(UISlider *)sld;
 + (void)volChanged:(UISlider *)sld;
-+ (void)onCloudTap:(id)sender;
 + (void)onCacheTap:(id)sender;
 + (void)onPrev:(id)s;
 + (void)onPlay:(id)s;
 + (void)onNext:(id)s;
 + (void)onClose:(id)s;
 @end
+
+/* 音量图标：SF Symbol，不用 emoji（灵动岛里 emoji 会被系统按彩色字重排，很脏） */
+static void LLLSetVolIcon(UILabel *l, float v) {
+    if (!l) return;
+    if (@available(iOS 13.0, *)) {
+        NSString *sym = (v < 0.02f) ? @"speaker.slash.fill"
+                        : ((v < 0.5f) ? @"speaker.wave.1.fill" : @"speaker.wave.3.fill");
+        UIImage *img = [UIImage systemImageNamed:sym];
+        if (img) {
+            img = [img imageWithTintColor:[UIColor colorWithWhite:0.88 alpha:1]
+                           renderingMode:UIImageRenderingModeAlwaysOriginal];
+            NSTextAttachment *att = [NSTextAttachment new];
+            att.image = img;
+            att.bounds = CGRectMake(0, -2, img.size.width, img.size.height);
+            l.attributedText = [NSAttributedString attributedStringWithAttachment:att];
+            return;
+        }
+    }
+    l.text = @"";
+}
 
 @implementation LLLMusicIsland
 
@@ -279,7 +296,7 @@ static void (^gTapHandler)(void) = nil;
 
     /* v2.2：独立音量（只调音乐播放器，不动系统音量） */
     gVolIcon = [self label:14 weight:UIFontWeightMedium color:[UIColor colorWithWhite:0.85 alpha:1]];
-    gVolIcon.text = @"🔊";
+    LLLSetVolIcon(gVolIcon, 0.8f);
     gVolIcon.frame = CGRectMake(18, 138, 24, 26);
     gVolIcon.hidden = YES;
     [gPill addSubview:gVolIcon];
@@ -316,19 +333,6 @@ static void (^gTapHandler)(void) = nil;
     [gNextBtn addTarget:self action:@selector(onNext:) forControlEvents:UIControlEventTouchUpInside];
     [gCtrlRow addSubview:gNextBtn];
 
-    /* v2.2：网易云入口（未登录 → 登录面板；已登录 → 我喜欢的/搜索/退出） */
-    gCloudBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    gCloudBtn.frame = CGRectMake(158, 2, 118, 30);
-    gCloudBtn.backgroundColor = [LLLAccentColor() colorWithAlphaComponent:0.30];
-    gCloudBtn.layer.cornerRadius = 15;
-    gCloudBtn.layer.cornerCurve = kCACornerCurveContinuous;
-    gCloudBtn.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
-    gCloudBtn.tintColor = UIColor.whiteColor;
-    gCloudBtn.titleLabel.textColor = UIColor.whiteColor;
-    [gCloudBtn setTitle:@"网易云 · 登录" forState:UIControlStateNormal];
-    [gCloudBtn addTarget:self action:@selector(onCloudTap:) forControlEvents:UIControlEventTouchUpInside];
-    [gCtrlRow addSubview:gCloudBtn];
-
     /* v2.2：清缓存与自动清缓存监控合并进灵动岛 */
     gCacheBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     gCacheBtn.frame = CGRectMake(280, 2, 76, 30);
@@ -343,7 +347,7 @@ static void (^gTapHandler)(void) = nil;
 
     gCacheLabel = [self label:10 weight:UIFontWeightMedium color:[UIColor colorWithWhite:0.55 alpha:1]];
     gCacheLabel.frame = CGRectMake(18, 206, kExpandW - 36, 18);
-    gCacheLabel.text = @"🧹 自动清缓存 · 每 30 秒巡检";
+    gCacheLabel.text = @"自动清缓存 · 每 30 秒巡检";
     gCacheLabel.hidden = YES;
     [gPill addSubview:gCacheLabel];
 
@@ -507,16 +511,6 @@ static NSString *LLLClock(NSTimeInterval t) {
         if (fabs(gVolSld.value - (double)v) > 0.001) gVolSld.value = v;
     }
 
-    /* 网易云登录状态实时同步到岛上按钮 */
-    NSString *cloudTitle = @"网易云 · 登录";
-    if ([LLLCloudMusic shared].loggedIn) {
-        NSString *nick = [LLLCloudMusic shared].nickname;
-        cloudTitle = nick.length ? [NSString stringWithFormat:@"网易云 · %@", nick]
-                                 : @"网易云 · 已登录";
-    }
-    if (![gCloudBtn titleForState:UIControlStateNormal] || ![[gCloudBtn titleForState:UIControlStateNormal] isEqualToString:cloudTitle]) {
-        [gCloudBtn setTitle:cloudTitle forState:UIControlStateNormal];
-    }
 }
 
 + (void)tick {
@@ -662,23 +656,16 @@ static NSString *LLLClock(NSTimeInterval t) {
 /* v2.2：独立音量 —— 只作用于音乐播放器（applyVolume），不影响系统音量 */
 + (void)volChanged:(UISlider *)sld {
     [[LLLNowPlaying shared] send:LLLNPCommandVolume value:(double)sld.value];
-    gVolIcon.text = (sld.value < 0.02f) ? @"🔇" : ((sld.value < 0.5f) ? @"🔉" : @"🔊");
+    LLLSetVolIcon(gVolIcon, (float)sld.value);
 }
 
 + (void)onCacheTap:(id)sender {
     PlayHaptic(YES);
-    gTransientText = @"🧹 正在清理缓存…";
+    gTransientText = @"正在清理缓存…";
     [self applyContent];
     if (gCacheLabel) gCacheLabel.text = gTransientText;
     /* LLLCacheCleanNow 内部只做一次 dispatch，真正的枚举在后台队列，主线程不卡 */
     LLLCacheCleanNow();
-}
-
-+ (void)onCloudTap:(id)sender {
-    /* 【网易云入口修复】用常驻宿主 VC，不要每次 new 一个没人持有的控制器：
-       临时 VC 会被 ARC 立刻回收，登录回调全打到 nil 上 → 点了没反应 */
-    MainViewController *vc = [MainViewController cloudHost];
-    [vc openCloudMusic];
 }
 
 /* 供 CacheCleaner 调用：自动清缓存的状态合并显示在灵动岛上 */
@@ -700,7 +687,6 @@ static NSString *LLLClock(NSTimeInterval t) {
             if (!gCacheLabel) return;
 
             NSMutableString *t = [NSMutableString string];
-            [t appendString:@"🧹 "];
             if (text.length) [t appendString:text];
             if (count > 0) [t appendFormat:@" · %lu 个", (unsigned long)count];
             NSString *line = [t copy];
