@@ -57,6 +57,31 @@ static NSData *LLLDataFromHex(NSString *hex) {
     return d;
 }
 
+/* RFC3986 严格编码：base64 里的 + / = 必须转义，
+   否则表单解码把 + 还原成空格 → params 解不出来，手机号登录必挂 */
+static NSString *LLLFormEncode(NSString *s) {
+    static NSCharacterSet *allowed;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableCharacterSet *m = [NSMutableCharacterSet alphanumericCharacterSet];
+        [m addCharactersInString:@"-._~"];
+        allowed = [m copy];
+    });
+    return [s stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: @"";
+}
+
+/* URL query 值：不允许裸 & = ? # + / */
+static NSString *LLLQueryEncode(NSString *s) {
+    static NSCharacterSet *allowed;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableCharacterSet *m = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
+        [m removeCharactersInString:@"+&=?#/"];
+        allowed = [m copy];
+    });
+    return [s stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: @"";
+}
+
 static NSData *LLLAES128(NSData *plain, NSString *key) {
     NSData *k = [key dataUsingEncoding:NSUTF8StringEncoding];
     NSData *iv = [kIV dataUsingEncoding:NSUTF8StringEncoding];
@@ -261,9 +286,7 @@ static NSString *LLLRandomKey(void) {
         __block NSUInteger i = 0;
         [params enumerateKeysAndObjectsUsingBlock:^(NSString *k, NSString *v, BOOL *stop) {
             if (i++) [url appendString:@"&"];
-            NSString *enc = [v stringByAddingPercentEncodingWithAllowedCharacters:
-                             NSCharacterSet.URLQueryAllowedCharacterSet];
-            [url appendFormat:@"%@=%@", k, enc ?: @""];
+            [url appendFormat:@"%@=%@", LLLQueryEncode(k), LLLQueryEncode(v)];
         }];
     }
 
@@ -302,8 +325,7 @@ static NSString *LLLRandomKey(void) {
 
     NSString *paramsB64 = [aes base64EncodedStringWithOptions:0];
     NSString *bodyStr = [NSString stringWithFormat:@"params=%@&encSecKey=%@",
-                         [paramsB64 stringByAddingPercentEncodingWithAllowedCharacters:
-                          NSCharacterSet.URLQueryAllowedCharacterSet], enc];
+                         LLLFormEncode(paramsB64), LLLFormEncode(enc)];
 
     NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@%@?csrf_token=", kBase, path]];
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
@@ -673,16 +695,55 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
             }
         }
 
-        if (u.length) {
-            if (done) done([NSURL URLWithString:u], nil);
-            return;
-        }
+        /* 【取流修复】接口给的是 302 到一个 403 的假地址时，AVPlayer 会静默不出声。
+           先把候选地址 HEAD 一遍（音频流会给 206/200 + audio/mpeg），能播才算数。 */
+        NSMutableArray<NSURL *> *cands = [NSMutableArray array];
+        NSURL *apiURL = u.length ? [NSURL URLWithString:u] : nil;
+        if (apiURL) [cands addObject:apiURL];
+        NSURL *outer = [NSURL URLWithString:
+                        [NSString stringWithFormat:@"%@/song/media/outer/url?id=%@.mp3", kBase, songID]];
+        if (outer) [cands addObject:outer];
 
-        NSURL *fallback = [NSURL URLWithString:
-                           [NSString stringWithFormat:@"%@/song/media/outer/url?id=%@.mp3", kBase, songID]];
-        if (fallback) { if (done) done(fallback, nil); return; }
-        if (done) done(nil, @"这首歌没有可用播放地址（版权或会员限制）");
+        [s probeCandidates:cands
+                     index:0
+                      done:^(NSURL *hit) {
+            if (hit) { if (done) done(hit, nil); return; }
+            if (done) done(nil, @"这首歌没有可用播放地址（版权或会员限制）");
+        }];
     }];
+}
+
+- (void)probeCandidates:(NSArray<NSURL *> *)cands
+                  index:(NSUInteger)idx
+                   done:(void (^)(NSURL *hit))done {
+    if (idx >= cands.count) { if (done) done(nil); return; }
+
+    NSURL *u = cands[idx];
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:u];
+    req.HTTPMethod = @"HEAD";
+    req.timeoutInterval = 8;
+    [req setValue:kUA forHTTPHeaderField:@"User-Agent"];
+    [req setValue:kBase forHTTPHeaderField:@"Referer"];
+
+    __weak typeof(self) w = self;
+    [[_session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+
+        BOOL ok = NO;
+        if (!err && [resp isKindOfClass:[NSHTTPURLResponse class]]) {
+            NSHTTPURLResponse *h = (NSHTTPURLResponse *)resp;
+            NSString *ctype = [[h allHeaderFields][@"Content-Type"] lowercaseString] ?: @"";
+            long long len = h.expectedContentLength;
+            if ((h.statusCode == 200 || h.statusCode == 206) &&
+                (len <= 0 || len > 32 * 1024) &&
+                ([ctype containsString:@"audio"] || [ctype containsString:@"octet-stream"] || ctype.length == 0)) {
+                ok = YES;
+            }
+        }
+        if (ok) { if (done) done(u); return; }
+        [s probeCandidates:cands index:idx + 1 done:done];
+    }] resume];
 }
 
 - (void)loadArtwork:(NSString *)url done:(void (^)(UIImage *))done {
@@ -710,6 +771,55 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     _loggedIn = NO;
     _nickname = nil;
     _uid = 0;
+}
+
+#pragma mark - 外部播放器（Folii 路线）
+
+/* 思路：网易云只负责登录 + 曲库 + 取流，播放交给已经装了的外部播放器。
+   开关在「设置 → 外部播放器播放」。没装或没接住，调用方自动回退内置 AVPlayer。 */
+
+static NSString * const kLLLExternalPlayerKey = @"LLL.externalPlayer";
+
++ (BOOL)externalPlayerEnabled {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:kLLLExternalPlayerKey];
+}
+
++ (void)setExternalPlayerEnabled:(BOOL)on {
+    [[NSUserDefaults standardUserDefaults] setBool:on forKey:kLLLExternalPlayerKey];
+}
+
++ (BOOL)sendToExternalPlayer:(NSURL *)url title:(NSString *)title {
+    if (![self externalPlayerEnabled] || url.absoluteString.length == 0) return NO;
+
+    NSString *enc = LLLFormEncode(url.absoluteString);
+    NSArray<NSString *> *tmpl = @[
+        @"folii://play?url=%@",
+        @"folii://open?url=%@",
+        @"folii://x-callback-url/play?url=%@",
+        @"music://%@",
+        @"qqmusic://qq.com/ui/openUrl?url=%@",
+    ];
+    [self openCandidate:tmpl index:0 encoded:enc];
+    return YES;
+}
+
++ (void)openCandidate:(NSArray<NSString *> *)tmpl index:(NSUInteger)idx encoded:(NSString *)enc {
+    if (idx >= tmpl.count) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            ShowToast(@"外部播放器没接住，已回退内置播放", 2.0, YES, YES);
+        });
+        return;
+    }
+
+    NSURL *u = [NSURL URLWithString:[NSString stringWithFormat:tmpl[idx], enc]];
+    if (!u) { [self openCandidate:tmpl index:idx + 1 encoded:enc]; return; }
+
+    [UIApplication.sharedApplication openURL:u options:@{} completionHandler:^(BOOL ok) {
+        if (ok) return;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [LLLCloudMusic openCandidate:tmpl index:idx + 1 encoded:enc];
+        });
+    }];
 }
 
 @end

@@ -37,6 +37,8 @@ static BOOL         gSeeking = NO, gVolDragging = NO;
 static NSTimer     *gTick = nil, *gCollapseTimer = nil;
 static BOOL         gShowing = NO, gExpanded = NO, gBuilding = NO;
 static NSString    *gLegacyTitle = nil;
+/* v3.3：临时标题（清缓存进度等）。非空时盖住歌名，3 秒后自动还原 */
+static NSString    *gTransientText = nil;
 static BOOL         gLegacyPlaying = NO;
 static void (^gTapHandler)(void) = nil;
 
@@ -79,6 +81,7 @@ static void (^gTapHandler)(void) = nil;
 + (void)applyContent;
 + (void)scheduleCollapse;
 + (void)showIsland;
++ (CGRect)pillRectForWidth:(CGFloat)w height:(CGFloat)h;
 + (void)onTap:(UIGestureRecognizer *)g;
 + (void)onLongPress:(UILongPressGestureRecognizer *)g;
 + (void)seekChanged:(UISlider *)sld;
@@ -163,11 +166,14 @@ static void (^gTapHandler)(void) = nil;
     gWin = [self islandWindow];
     gWin.windowLevel = UIWindowLevelStatusBar + 500;
     gWin.backgroundColor = UIColor.clearColor;
+    gWin.opaque = NO;
     gWin.userInteractionEnabled = YES;
+    /* 【占全屏修复】窗口和胶囊同尺寸：覆盖层不再整屏铺开，游戏区域一个像素都不占 */
+    gWin.frame = [self pillRectForWidth:kCompactW height:kCompactH];
 
-    gHost = [[LLLIslandHostView alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    gHost = [[LLLIslandHostView alloc] initWithFrame:CGRectMake(0, 0, kCompactW, kCompactH)];
     gHost.backgroundColor = UIColor.clearColor;
-    gHost.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    gHost.autoresizingMask = UIViewAutoresizingNone;
     UIViewController *vc = [UIViewController new];
     vc.view = gHost;
     gWin.rootViewController = vc;
@@ -356,15 +362,36 @@ static void (^gTapHandler)(void) = nil;
 
 #pragma mark - 布局
 
+/* 胶囊在屏幕坐标里的落点：水平居中，状态栏下方 6pt */
++ (CGRect)pillRectForWidth:(CGFloat)w height:(CGFloat)h {
+    CGSize screen = UIScreen.mainScreen.bounds.size;
+    if (screen.width < 10 || screen.height < 10) screen = CGSizeMake(390, 844);
+    CGFloat x = floorf((screen.width - w) / 2.0f);
+    CGFloat y = [self topInset] + 6;
+    if (@available(iOS 11.0, *)) {
+        UIWindow *key = UIApplication.sharedApplication.keyWindow;
+        if (key) {
+            UIEdgeInsets si = key.safeAreaInsets;
+            CGFloat maxTop = screen.height - h - 12;
+            /* 有刘海/灵动岛的真机：状态栏高度已经包含安全区，别再加一次 */
+            if (si.top > 0) y = MAX(y, si.top + 4);
+            if (y > maxTop) y = MAX(8, maxTop);
+        }
+    }
+    return CGRectMake(x, y, w, h);
+}
+
 + (void)layoutForExpanded:(BOOL)expanded animated:(BOOL)animated {
     if (!gPill) return;
     CGFloat w = expanded ? kExpandW : kCompactW;
     CGFloat h = expanded ? kExpandH : kCompactH;
 
     void (^apply)(void) = ^{
-        CGSize host = gHost.bounds.size;
-        if (host.width < 10) host = UIScreen.mainScreen.bounds.size;
-        gPill.frame = CGRectMake((host.width - w) / 2.0, [self topInset] + 6, w, h);
+        CGRect win = [self pillRectForWidth:w height:h];
+        /* 窗口 = 胶囊：宿主、根视图、胶囊三者同框，没有整屏遮罩可挡 */
+        gWin.frame = win;
+        gHost.frame = CGRectMake(0, 0, w, h);
+        gPill.frame = CGRectMake(0, 0, w, h);
         gPill.layer.cornerRadius = expanded ? 26 : (kCompactH / 2.0);
 
         gArtSm.hidden = expanded;
@@ -412,7 +439,7 @@ static NSString *LLLClock(NSTimeInterval t) {
     if (!gPill) return;
     LLLNowPlaying *np = [LLLNowPlaying shared];
 
-    NSString *title = np.title.length ? np.title : gLegacyTitle;
+    NSString *title = gTransientText.length ? gTransientText : (np.title.length ? np.title : gLegacyTitle);
     BOOL playing = np.hasTrack ? np.playing : gLegacyPlaying;
     if (!title.length) title = @"未在播放";
 
@@ -531,6 +558,12 @@ static NSString *LLLClock(NSTimeInterval t) {
     [self buildIfNeeded];
     if (!gPill) return;
     [self daemonStart];
+
+    /* 【不显示修复】hide 会把整个 window 藏起来；这里必须先把 window 拉回来，
+       否则胶囊动画跑在隐藏窗口上 = 灵动岛彻底消失（清缓存后再也看不到岛的原因） */
+    gWin.hidden = NO;
+    gWin.alpha = 1;
+
     [self applyContent];
 
     if (!gShowing) {
@@ -542,6 +575,9 @@ static NSString *LLLClock(NSTimeInterval t) {
             gPill.alpha = 1;
             gPill.transform = CGAffineTransformIdentity;
         });
+    } else if (gPill.hidden) {
+        gPill.hidden = NO;
+        gPill.alpha = 1;
     }
     [self layoutForExpanded:gExpanded animated:YES];
 }
@@ -552,6 +588,8 @@ static NSString *LLLClock(NSTimeInterval t) {
             if (!gPill || !gShowing) return;
             gShowing = NO;
             gExpanded = NO;
+            gSeeking = NO;
+            gTransientText = nil;
             [self daemonStop];
             [gCollapseTimer invalidate];
             gCollapseTimer = nil;
@@ -617,44 +655,76 @@ static NSString *LLLClock(NSTimeInterval t) {
 }
 
 + (void)onCacheTap:(id)sender {
-    gCacheLabel.text = @"🧹 正在清理缓存…";
     PlayHaptic(YES);
+    gTransientText = @"🧹 正在清理缓存…";
+    [self applyContent];
+    if (gCacheLabel) gCacheLabel.text = gTransientText;
+    /* LLLCacheCleanNow 内部只做一次 dispatch，真正的枚举在后台队列，主线程不卡 */
     LLLCacheCleanNow();
 }
 
 + (void)onCloudTap:(id)sender {
-    /* 复用主面板的网易云入口（扫码 / 手机号 / Cookie 三合一），
-       登录态变化后 applyContent 会自动同步岛上按钮文案 */
-    MainViewController *vc = [[MainViewController alloc] init];
+    /* 【网易云入口修复】用常驻宿主 VC，不要每次 new 一个没人持有的控制器：
+       临时 VC 会被 ARC 立刻回收，登录回调全打到 nil 上 → 点了没反应 */
+    MainViewController *vc = [MainViewController cloudHost];
     [vc openCloudMusic];
 }
 
 /* 供 CacheCleaner 调用：自动清缓存的状态合并显示在灵动岛上 */
 + (void)clearCacheLabel {
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (gCacheLabel) gCacheLabel.text = @"";
+        if (gCacheLabel) {
+            gCacheLabel.text = @"";
+            gCacheLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1];
+        }
+        gTransientText = nil;
+        [self applyContent];
     });
 }
 
 + (void)showCacheStatus:(NSString *)text count:(NSUInteger)count isError:(BOOL)isError {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self buildIfNeeded];
-        if (!gCacheLabel) return;
-        NSMutableString *t = [NSMutableString string];
-        [t appendString:@"🧹 "];
-        if (text.length) [t appendString:text];
-        if (count > 0) [t appendFormat:@" · %lu 个", (unsigned long)count];
-        gCacheLabel.text = t;
-        /* v2.9: 只更新胶囊文字，不展开、不遮挡 */
-        if (isError) {
-            gCacheLabel.textColor = [UIColor colorWithRed:1 green:0.42 blue:0.42 alpha:1];
-        } else if ([text containsString:@"已清除"] || [text containsString:@"清理完毕"]) {
-            gCacheLabel.textColor = [UIColor colorWithRed:0.30 green:0.85 blue:0.45 alpha:1];
-        } else {
-            gCacheLabel.textColor = [UIColor colorWithRed:1 green:0.62 blue:0.20 alpha:1];
-        }
-        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(clearCacheLabel) object:nil];
-        [self performSelector:@selector(clearCacheLabel) withObject:nil afterDelay:3.0];
+        @try {
+            [self buildIfNeeded];
+            if (!gCacheLabel) return;
+
+            NSMutableString *t = [NSMutableString string];
+            [t appendString:@"🧹 "];
+            if (text.length) [t appendString:text];
+            if (count > 0) [t appendFormat:@" · %lu 个", (unsigned long)count];
+            NSString *line = [t copy];
+
+            /* 【清缓存看不到岛修复】胶囊态也要能看见结果：临时盖住歌名 */
+            gTransientText = line;
+            if (!gShowing) [self showIsland];
+            [self applyContent];
+
+            gCacheLabel.text = line;
+            if (isError) {
+                gCacheLabel.textColor = [UIColor colorWithRed:1 green:0.42 blue:0.42 alpha:1];
+            } else if ([text containsString:@"已清除"] || [text containsString:@"清理完毕"]) {
+                gCacheLabel.textColor = [UIColor colorWithRed:0.30 green:0.85 blue:0.45 alpha:1];
+            } else {
+                gCacheLabel.textColor = [UIColor colorWithRed:1 green:0.62 blue:0.20 alpha:1];
+            }
+            [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(clearCacheLabel) object:nil];
+            [self performSelector:@selector(clearCacheLabel) withObject:nil afterDelay:3.0];
+
+            /* 没在放歌就把岛收回去，别一直挂在屏幕上 */
+            LLLNowPlaying *np = [LLLNowPlaying shared];
+            if (!np.playing && !gLegacyPlaying) {
+                [gCollapseTimer invalidate];
+                gCollapseTimer = [NSTimer timerWithTimeInterval:4.0 repeats:NO block:^(NSTimer *tm) {
+                    @try {
+                        if (![LLLNowPlaying shared].playing && !gLegacyPlaying) {
+                            [LLLMusicIsland setExpanded:NO];
+                            [LLLMusicIsland hide];
+                        }
+                    } @catch (__unused NSException *e) { }
+                }];
+                [[NSRunLoop mainRunLoop] addTimer:gCollapseTimer forMode:NSRunLoopCommonModes];
+            }
+        } @catch (__unused NSException *e) { }
     });
 }
 

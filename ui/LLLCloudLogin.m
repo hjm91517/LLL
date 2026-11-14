@@ -25,11 +25,29 @@ static UITextField *gPwdField = nil;
 static UITextView  *gCookieView = nil;
 static UILabel     *gLoginHint = nil;
 
+/* 常驻宿主：浮窗面板创建时登记，灵动岛入口直接用这一个。
+   以前每次 new 一个临时 VC，ARC 立刻回收 → 登录回调全打在 nil 上。 */
+static __weak MainViewController *gCloudHostRef = nil;
+static MainViewController *gCloudHostOwned = nil;
+
 @implementation MainViewController (CloudLogin)
+
++ (void)registerCloudHost:(MainViewController *)vc {
+    if (vc) gCloudHostRef = vc;
+}
+
++ (MainViewController *)cloudHost {
+    MainViewController *vc = gCloudHostRef;
+    if (vc) return vc;
+    if (!gCloudHostOwned) gCloudHostOwned = [[MainViewController alloc] init];
+    return gCloudHostOwned;
+}
 
 #pragma mark - 入口
 
 - (void)dismissCloudLoginCard {
+    /* 关卡片 = 放弃这次登录：不停轮询的话，四分钟后还会突然弹一条"登录成功" */
+    [[LLLCloudMusic shared] cancelLogin];
     if (gCloseLoginCard) { gCloseLoginCard(); gCloseLoginCard = nil; }
 }
 
@@ -287,11 +305,11 @@ static UILabel     *gLoginHint = nil;
 #pragma mark - 云端播放
 
 - (void)installNowPlayingBridge {
-    __weak typeof(self) w = self;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         [LLLNowPlaying setCommandHandler:^(LLLNPCommand cmd, double value) {
-            __strong typeof(w) s = w;
+            /* 每次都取当前常驻宿主，别再闭包里绑死一个对象（绑死了宿主走了岛就哑了） */
+            MainViewController *s = [MainViewController cloudHost];
             if (!s) return;
 
             if (cmd == LLLNPCommandTogglePlay) {
@@ -366,6 +384,18 @@ static UILabel     *gLoginHint = nil;
                 ShowToast(err.length ? err : @"拿不到播放地址", 2.2, YES, YES);
                 return;
             }
+
+            /* Folii 路线：登录/取流还在网易云，播放交给已装的第三方播放器；
+               没装就回落到内置 AVPlayer（开关见 设置 → 外部播放器） */
+            if ([LLLCloudMusic sendToExternalPlayer:url title:song[@"name"]]) {
+                [s stopMusic];
+                [[LLLNowPlaying shared] setPlaying:NO];
+                ShowToast(@"已交给外部播放器", 2.0, YES, NO);
+                return;
+            }
+
+            /* 内置播放前先停本地音乐，避免两路声音叠着放 */
+            [s stopMusic];
             [s.cloudPlayer pause];
             s.cloudPlayer = [AVPlayer playerWithURL:url];
             [s applyVolume];

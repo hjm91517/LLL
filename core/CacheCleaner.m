@@ -159,6 +159,7 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
 
 @interface KLM : NSObject
 @property (atomic, assign) BOOL run;
+@property (atomic, assign) BOOL manual;   /* 灵动岛按钮等手动触发的一轮清理 */
 @property (atomic, assign) NSUInteger total;
 @property (atomic, assign) BOOL busy;
 @property (nonatomic, strong) NSTimer *cleanTimer;
@@ -207,7 +208,9 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
 }
 
 - (void)clean {
-    if (!self.run || self.busy) return;
+    /* 自动监控（run）和手动一轮（manual）都能进；busy 只防重入 */
+    if (self.busy) return;
+    if (!self.run && !self.manual) return;
     self.busy = YES;
 
     NSString *injectedDir = targetPath();
@@ -216,6 +219,7 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
     }
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+      @try {
         NSFileManager *fm = NSFileManager.defaultManager;
         NSMutableArray *ok = [NSMutableArray new];
         NSMutableArray *bad = [NSMutableArray new];
@@ -239,7 +243,11 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
             self.busy = NO;
             if (found > 0) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-                               dispatch_get_main_queue(), ^{ if (self.run) [self clean]; });
+                               dispatch_get_main_queue(), ^{
+                    if (self.run || self.manual) [self clean];
+                });
+            } else {
+                self.manual = NO;   /* 一轮扫完没货了，手动模式收工 */
             }
             if (found == 0) {
                 // 2.5: 无缓存时静默，不弹胶囊
@@ -257,6 +265,11 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
                 });
             }
         });
+      } @catch (NSException *e) {
+        NSLog(@"[CacheCleaner] 清理异常: %@", e.reason);
+        self.manual = NO;
+        dispatch_async(dispatch_get_main_queue(), ^{ self.busy = NO; });
+      }
     });
 }
 
@@ -312,14 +325,12 @@ void setCacheCleanerEnabled(BOOL enabled) {
     }
 }
 
-/* v2.2 灵动岛「清缓存」按钮：手动触发一次清理（无需开启自动监控） */
+/* v2.2 灵动岛「清缓存」按钮：手动触发一轮清理（不需要开启自动监控） */
 void LLLCacheCleanNow(void) {
     KLM *m = [KLM shared];
     if (m.busy) return;
-    BOOL was = m.run;
-    m.run = YES;          // 临时放行 clean() 的 run 门槛
+    m.manual = YES;
     [m clean];
-    m.run = was;
 }
 
 BOOL isCacheCleanerEnabled(void) {
