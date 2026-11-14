@@ -12,6 +12,7 @@ typedef NS_ENUM(NSInteger, LLLNPCommand) {
     LLLNPCommandNext,
     LLLNPCommandPrevious,
     LLLNPCommandSeek,
+    LLLNPCommandVolume,   /// v2.2 灵动岛独立音量（0~1）
 };
 
 /// 状态变化（歌名 / 封面 / 播放态）时发出，userInfo 为空

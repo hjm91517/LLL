@@ -5,12 +5,16 @@
 
 #import "LLLMusicIsland.h"
 #import "LLLNowPlaying.h"
+#import "BaseComponents.h"
+#import "LLLCloudLogin.h"
+#import "LLLCloudMusic.h"
+#import "CacheCleaner.h"
 #import <math.h>
 #import "LLLAnim.h"
 #import "AppTheme.h"
 
 static const CGFloat kCompactW = 218, kCompactH = 38;
-static const CGFloat kExpandW  = 348, kExpandH  = 158;
+static const CGFloat kExpandW  = 372, kExpandH  = 248;
 
 static UIWindow   *gWin    = nil;
 static UIView     *gHost   = nil;
@@ -24,6 +28,11 @@ static NSArray<UIView *> *gBars = nil;
 static UIView      *gTrack = nil, *gFill = nil;
 static UIView      *gCtrlRow = nil;
 static UIButton    *gPlayBtn = nil, *gPrevBtn = nil, *gNextBtn = nil, *gCloseBtn = nil;
+/* v2.2 新增：可拖进度条 / 独立音量 / 网易云入口 / 清缓存整合 */
+static UISlider    *gSeekSld = nil, *gVolSld = nil;
+static UILabel     *gVolIcon = nil, *gCacheLabel = nil;
+static UIButton    *gCloudBtn = nil, *gCacheBtn = nil;
+static BOOL         gSeeking = NO, gVolDragging = NO;
 
 static NSTimer     *gTick = nil, *gCollapseTimer = nil;
 static BOOL         gShowing = NO, gExpanded = NO, gBuilding = NO;
@@ -33,12 +42,31 @@ static void (^gTapHandler)(void) = nil;
 
 #pragma mark - 穿透宿主
 
-@interface LLLIslandHostView : UIView
+@interface LLLIslandHostView : UIView <UIGestureRecognizerDelegate>
 @end
 @implementation LLLIslandHostView
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *v = [super hitTest:point withEvent:event];
     return (v == self) ? nil : v;
+}
+/* 【进度可拖修复】胶囊上的 tap/长按手势会拦截滑条与按钮的触摸：
+ * 展开态下，落点在滑条或按钮（含控制行内按钮）上时，手势不得开始 */
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
+    UIView *pill = self.subviews.firstObject;
+    if (!pill || pill.isHidden || pill.tag != 777001) return YES;
+    CGPoint p = [g locationInView:pill];
+    for (UIView *v in pill.subviews) {
+        if (v.isHidden) continue;
+        if ([v isKindOfClass:[UISlider class]] && CGRectContainsPoint(v.frame, p)) return NO;
+        if (v.tag == 777 && CGRectContainsPoint(v.frame, p)) {
+            for (UIView *b in v.subviews) {
+                if (b.isHidden) continue;
+                CGRect bf = [pill convertRect:b.frame fromView:v];
+                if (CGRectContainsPoint(bf, p)) return NO;
+            }
+        }
+    }
+    return YES;
 }
 @end
 
@@ -53,11 +81,15 @@ static void (^gTapHandler)(void) = nil;
 + (void)showIsland;
 + (void)onTap:(UIGestureRecognizer *)g;
 + (void)onLongPress:(UILongPressGestureRecognizer *)g;
++ (void)seekChanged:(UISlider *)sld;
++ (void)seekEnded:(UISlider *)sld;
++ (void)volChanged:(UISlider *)sld;
++ (void)onCloudTap:(id)sender;
++ (void)onCacheTap:(id)sender;
 + (void)onPrev:(id)s;
 + (void)onPlay:(id)s;
 + (void)onNext:(id)s;
 + (void)onClose:(id)s;
-+ (void)onSeek:(UITapGestureRecognizer *)g;
 @end
 
 @implementation LLLMusicIsland
@@ -77,8 +109,9 @@ static void (^gTapHandler)(void) = nil;
             }
         }
     }
-    gWin = scene ? [[UIWindow alloc] initWithWindowScene:scene]
-                 : [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    /* 【交互修复】窗口本体也要穿透（双保险：宿主视图已穿透） */
+    gWin = scene ? [[BaseOverlayWindow alloc] initWithWindowScene:scene]
+                 : [[BaseOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     return gWin;
 }
 
@@ -141,6 +174,7 @@ static void (^gTapHandler)(void) = nil;
     gWin.hidden = NO;
 
     gPill = [[UIView alloc] initWithFrame:CGRectMake(0, 0, kCompactW, kCompactH)];
+    gPill.tag = 777001;
     gPill.backgroundColor = [UIColor colorWithWhite:0.04 alpha:0.94];
     gPill.layer.cornerRadius = kCompactH / 2.0;
     gPill.layer.cornerCurve = kCACornerCurveContinuous;
@@ -151,9 +185,12 @@ static void (^gTapHandler)(void) = nil;
     gPill.alpha = 0;
     [gHost addSubview:gPill];
 
-    [gPill addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onTap:)]];
+    UITapGestureRecognizer *ptap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onTap:)];
+    ptap.delegate = gHost;   /* 让滑条/按钮触摸不被手势拦截（见 LLLIslandHostView） */
+    [gPill addGestureRecognizer:ptap];
     UILongPressGestureRecognizer *lp =
         [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(onLongPress:)];
+    lp.delegate = gHost;
     lp.minimumPressDuration = 0.6;
     [gPill addGestureRecognizer:lp];
 
@@ -178,12 +215,12 @@ static void (^gTapHandler)(void) = nil;
     [gPill addSubview:gTitleSm];
 
     gTitleLg = [self label:15 weight:UIFontWeightSemibold color:UIColor.whiteColor];
-    gTitleLg.frame = CGRectMake(80, 22, kExpandW - 128, 20);
+    gTitleLg.frame = CGRectMake(86, 16, kExpandW - 86 - 46, 20);
     gTitleLg.hidden = YES;
     [gPill addSubview:gTitleLg];
 
     gArtistLg = [self label:11 weight:UIFontWeightRegular color:[UIColor colorWithWhite:0.62 alpha:1]];
-    gArtistLg.frame = CGRectMake(80, 44, kExpandW - 128, 16);
+    gArtistLg.frame = CGRectMake(86, 42, kExpandW - 86 - 46, 16);
     gArtistLg.hidden = YES;
     [gPill addSubview:gArtistLg];
 
@@ -199,43 +236,60 @@ static void (^gTapHandler)(void) = nil;
     }
     gBars = bars;
 
-    gTrack = [[UIView alloc] initWithFrame:CGRectMake(18, 92, kExpandW - 36, 4)];
-    gTrack.backgroundColor = [UIColor colorWithWhite:1 alpha:0.16];
-    gTrack.layer.cornerRadius = 2;
-    gTrack.clipsToBounds = YES;
-    gTrack.hidden = YES;
-    gTrack.userInteractionEnabled = YES;
-    [gTrack addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onSeek:)]];
-    [gPill addSubview:gTrack];
-
-    gFill = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 4)];
-    gFill.backgroundColor = [UIColor colorWithWhite:1 alpha:0.94];
-    [gTrack addSubview:gFill];
+    /* v2.2：可拖动进度条（点按式旧进度条只有 tap，拖不了进度） */
+    gSeekSld = [[UISlider alloc] initWithFrame:CGRectMake(18, 80, kExpandW - 36, 30)];
+    gSeekSld.minimumTrackTintColor = [LLLAccentColor() colorWithAlphaComponent:0.95];
+    gSeekSld.maximumTrackTintColor = [UIColor colorWithWhite:1 alpha:0.18];
+    gSeekSld.thumbTintColor = UIColor.whiteColor;
+    gSeekSld.minimumValue = 0; gSeekSld.maximumValue = 1;
+    gSeekSld.hidden = YES;
+    [gSeekSld addTarget:self action:@selector(seekChanged:)
+       forControlEvents:UIControlEventValueChanged];
+    [gSeekSld addTarget:self action:@selector(seekEnded:)
+       forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
+    [gPill addSubview:gSeekSld];
 
     gTimeLg = [self label:10 weight:UIFontWeightMedium color:[UIColor colorWithWhite:0.72 alpha:1]];
     gTimeLg.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightMedium];
-    gTimeLg.frame = CGRectMake(18, 100, 60, 14);
+    gTimeLg.frame = CGRectMake(18, 110, 60, 14);
     gTimeLg.hidden = YES;
     [gPill addSubview:gTimeLg];
 
     gDurLg = [self label:10 weight:UIFontWeightMedium color:[UIColor colorWithWhite:0.62 alpha:1]];
     gDurLg.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightMedium];
     gDurLg.textAlignment = NSTextAlignmentRight;
-    gDurLg.frame = CGRectMake(kExpandW - 78, 100, 60, 14);
+    gDurLg.frame = CGRectMake(kExpandW - 78, 110, 60, 14);
     gDurLg.hidden = YES;
     [gPill addSubview:gDurLg];
 
-    gCtrlRow = [[UIView alloc] initWithFrame:CGRectMake(0, 118, kExpandW, 32)];
+    /* v2.2：独立音量（只调音乐播放器，不动系统音量） */
+    gVolIcon = [self label:14 weight:UIFontWeightMedium color:[UIColor colorWithWhite:0.85 alpha:1]];
+    gVolIcon.text = @"🔊";
+    gVolIcon.frame = CGRectMake(18, 138, 24, 26);
+    gVolIcon.hidden = YES;
+    [gPill addSubview:gVolIcon];
+
+    gVolSld = [[UISlider alloc] initWithFrame:CGRectMake(46, 140, kExpandW - 64, 26)];
+    gVolSld.minimumTrackTintColor = [UIColor colorWithWhite:0.96 alpha:0.9];
+    gVolSld.maximumTrackTintColor = [UIColor colorWithWhite:1 alpha:0.18];
+    gVolSld.thumbTintColor = UIColor.whiteColor;
+    gVolSld.minimumValue = 0; gVolSld.maximumValue = 1;
+    gVolSld.hidden = YES;
+    [gVolSld addTarget:self action:@selector(volChanged:)
+       forControlEvents:UIControlEventValueChanged];
+    [gPill addSubview:gVolSld];
+
+    gCtrlRow = [[UIView alloc] initWithFrame:CGRectMake(0, 168, kExpandW, 34)];
     gCtrlRow.hidden = YES;
     [gPill addSubview:gCtrlRow];
 
     gPrevBtn = [self button:@"backward.fill" fallback:@"<<" size:15];
-    gPrevBtn.frame = CGRectMake(kExpandW / 2 - 92, 0, 40, 32);
+    gPrevBtn.frame = CGRectMake(14, 1, 44, 32);
     [gPrevBtn addTarget:self action:@selector(onPrev:) forControlEvents:UIControlEventTouchUpInside];
     [gCtrlRow addSubview:gPrevBtn];
 
     gPlayBtn = [self button:@"play.fill" fallback:@"PLAY" size:17];
-    gPlayBtn.frame = CGRectMake(kExpandW / 2 - 36, -2, 72, 36);
+    gPlayBtn.frame = CGRectMake(58, -1, 48, 36);
     gPlayBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
     gPlayBtn.layer.cornerRadius = 18;
     gPlayBtn.layer.cornerCurve = kCACornerCurveContinuous;
@@ -243,12 +297,43 @@ static void (^gTapHandler)(void) = nil;
     [gCtrlRow addSubview:gPlayBtn];
 
     gNextBtn = [self button:@"forward.fill" fallback:@">>" size:15];
-    gNextBtn.frame = CGRectMake(kExpandW / 2 + 52, 0, 40, 32);
+    gNextBtn.frame = CGRectMake(106, 1, 44, 32);
     [gNextBtn addTarget:self action:@selector(onNext:) forControlEvents:UIControlEventTouchUpInside];
     [gCtrlRow addSubview:gNextBtn];
 
+    /* v2.2：网易云入口（未登录 → 登录面板；已登录 → 我喜欢的/搜索/退出） */
+    gCloudBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    gCloudBtn.frame = CGRectMake(158, 2, 118, 30);
+    gCloudBtn.backgroundColor = [LLLAccentColor() colorWithAlphaComponent:0.30];
+    gCloudBtn.layer.cornerRadius = 15;
+    gCloudBtn.layer.cornerCurve = kCACornerCurveContinuous;
+    gCloudBtn.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    gCloudBtn.tintColor = UIColor.whiteColor;
+    gCloudBtn.titleLabel.textColor = UIColor.whiteColor;
+    [gCloudBtn setTitle:@"网易云 · 登录" forState:UIControlStateNormal];
+    [gCloudBtn addTarget:self action:@selector(onCloudTap:) forControlEvents:UIControlEventTouchUpInside];
+    [gCtrlRow addSubview:gCloudBtn];
+
+    /* v2.2：清缓存与自动清缓存监控合并进灵动岛 */
+    gCacheBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    gCacheBtn.frame = CGRectMake(280, 2, 76, 30);
+    gCacheBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
+    gCacheBtn.layer.cornerRadius = 15;
+    gCacheBtn.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    gCacheBtn.tintColor = UIColor.whiteColor;
+    gCacheBtn.titleLabel.textColor = UIColor.whiteColor;
+    [gCacheBtn setTitle:@"清缓存" forState:UIControlStateNormal];
+    [gCacheBtn addTarget:self action:@selector(onCacheTap:) forControlEvents:UIControlEventTouchUpInside];
+    [gCtrlRow addSubview:gCacheBtn];
+
+    gCacheLabel = [self label:10 weight:UIFontWeightMedium color:[UIColor colorWithWhite:0.55 alpha:1]];
+    gCacheLabel.frame = CGRectMake(18, 206, kExpandW - 36, 18);
+    gCacheLabel.text = @"🧹 自动清缓存 · 每 30 秒巡检";
+    gCacheLabel.hidden = YES;
+    [gPill addSubview:gCacheLabel];
+
     gCloseBtn = [self button:@"chevron.down" fallback:@"v" size:11];
-    gCloseBtn.frame = CGRectMake(kExpandW - 40, 18, 28, 28);
+    gCloseBtn.frame = CGRectMake(kExpandW - 40, 16, 28, 28);
     gCloseBtn.hidden = YES;
     [gCloseBtn addTarget:self action:@selector(onClose:) forControlEvents:UIControlEventTouchUpInside];
     [gPill addSubview:gCloseBtn];
@@ -280,7 +365,7 @@ static void (^gTapHandler)(void) = nil;
         CGSize host = gHost.bounds.size;
         if (host.width < 10) host = UIScreen.mainScreen.bounds.size;
         gPill.frame = CGRectMake((host.width - w) / 2.0, [self topInset] + 6, w, h);
-        gPill.layer.cornerRadius = expanded ? 30 : (kCompactH / 2.0);
+        gPill.layer.cornerRadius = expanded ? 26 : (kCompactH / 2.0);
 
         gArtSm.hidden = expanded;
         gTitleSm.hidden = expanded;
@@ -289,10 +374,13 @@ static void (^gTapHandler)(void) = nil;
         gArtLg.hidden = !expanded;
         gTitleLg.hidden = !expanded;
         gArtistLg.hidden = !expanded;
-        gTrack.hidden = !expanded;
+        gSeekSld.hidden = !expanded;
         gTimeLg.hidden = !expanded;
         gDurLg.hidden = !expanded;
+        gVolIcon.hidden = !expanded;
+        gVolSld.hidden = !expanded;
         gCtrlRow.hidden = !expanded;
+        gCacheLabel.hidden = !expanded;
         gCloseBtn.hidden = !expanded;
     };
 
@@ -373,9 +461,25 @@ static NSString *LLLClock(NSTimeInterval t) {
     gTimeLg.text = LLLClock(e);
     CGFloat ratio = (d > 0.5) ? (CGFloat)(e / d) : 0;
     ratio = MAX(0, MIN(1, ratio));
-    CGRect f = gFill.frame;
-    f.size.width = gTrack.bounds.size.width * ratio;
-    gFill.frame = f;
+    if (!gSeeking && fabsf(gSeekSld.value - ratio) > 0.001f) gSeekSld.value = ratio;
+
+    /* 独立音量：来自 LLL.volume（applyVolume 只作用于音乐播放器，不动系统音量） */
+    {
+        float v = [[NSUserDefaults standardUserDefaults] floatForKey:@"LLL.volume"];
+        if (v <= 0.001f) v = 0.8f;
+        if (fabsf(gVolSld.value - v) > 0.001f) gVolSld.value = v;
+    }
+
+    /* 网易云登录状态实时同步到岛上按钮 */
+    NSString *cloudTitle = @"网易云 · 登录";
+    if ([LLLCloudMusic shared].loggedIn) {
+        NSString *nick = [LLLCloudMusic shared].nickname;
+        cloudTitle = nick.length ? [NSString stringWithFormat:@"网易云 · %@", nick]
+                                 : @"网易云 · 已登录";
+    }
+    if (![gCloudBtn titleForState:UIControlStateNormal] || ![[gCloudBtn titleForState:UIControlStateNormal] isEqualToString:cloudTitle]) {
+        [gCloudBtn setTitle:cloudTitle forState:UIControlStateNormal];
+    }
 }
 
 + (void)tick {
@@ -486,6 +590,60 @@ static NSString *LLLClock(NSTimeInterval t) {
 + (void)onNext:(id)s { [[LLLNowPlaying shared] send:LLLNPCommandNext value:0]; }
 + (void)onClose:(id)s { [self setExpanded:NO]; }
 
+/* v2.2：拖动进度 —— 拖动中只刷显示，松手才真正 seek */
++ (void)seekChanged:(UISlider *)sld {
+    gSeeking = YES;
+    LLLNowPlaying *np = [LLLNowPlaying shared];
+    double d = np.duration;
+    if (d > 0.5) {
+        gTimeLg.text = LLLClock(sld.value * d);
+    }
+}
++ (void)seekEnded:(UISlider *)sld {
+    gSeeking = NO;
+    LLLNowPlaying *np = [LLLNowPlaying shared];
+    double d = np.duration;
+    if (d > 0.5) {
+        [[LLLNowPlaying shared] send:LLLNPCommandSeek value:(sld.value * d)];
+        PlayHaptic(YES);
+    }
+}
+
+/* v2.2：独立音量 —— 只作用于音乐播放器（applyVolume），不影响系统音量 */
++ (void)volChanged:(UISlider *)sld {
+    [[LLLNowPlaying shared] send:LLLNPCommandVolume value:(double)sld.value];
+    gVolIcon.text = (sld.value < 0.02f) ? @"🔇" : ((sld.value < 0.5f) ? @"🔉" : @"🔊");
+}
+
++ (void)onCacheTap:(id)sender {
+    gCacheLabel.text = @"🧹 正在清理缓存…";
+    PlayHaptic(YES);
+    LLLCacheCleanNow();
+}
+
++ (void)onCloudTap:(id)sender {
+    /* 复用主面板的网易云入口（扫码 / 手机号 / Cookie 三合一），
+       登录态变化后 applyContent 会自动同步岛上按钮文案 */
+    MainViewController *vc = [[MainViewController alloc] init];
+    [vc openCloudMusic];
+}
+
+/* 供 CacheCleaner 调用：自动清缓存的状态合并显示在灵动岛上 */
++ (void)showCacheStatus:(NSString *)text count:(NSUInteger)count isError:(BOOL)isError {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self buildIfNeeded];
+        if (!gCacheLabel) return;
+        NSMutableString *t = [NSMutableString string];
+        [t appendString:@"🧹 "];
+        if (text.length) [t appendString:text];
+        if (count > 0) [t appendFormat:@" · %lu 个", (unsigned long)count];
+        gCacheLabel.text = t;
+        gCacheLabel.textColor = isError
+            ? [UIColor colorWithRed:1 green:0.42 blue:0.42 alpha:1]
+            : [UIColor colorWithWhite:0.55 alpha:1];
+    });
+}
+
 + (void)onPlay:(id)s {
     LLLNowPlaying *np = [LLLNowPlaying shared];
     if (np.hasTrack) [np setPlaying:!np.playing];
@@ -494,15 +652,7 @@ static NSString *LLLClock(NSTimeInterval t) {
     [self applyContent];
 }
 
-+ (void)onSeek:(UITapGestureRecognizer *)g {
-    CGPoint p = [g locationInView:gTrack];
-    CGFloat w = MAX(1, gTrack.bounds.size.width);
-    double ratio = MAX(0, MIN(1, p.x / w));
-    LLLNowPlaying *np = [LLLNowPlaying shared];
-    [np send:LLLNPCommandSeek value:ratio * MAX(0.0, np.duration)];
-    [np updateElapsed:ratio * np.duration duration:np.duration];
-    [self applyContent];
-}
+/* 旧点按式 seek 已由 UISlider（seekChanged/seekEnded）取代 */
 
 #pragma mark - 对外
 

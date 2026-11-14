@@ -1,6 +1,7 @@
 
 #import "CacheCleaner.h"
 #import "BaseComponents.h"
+#import "LLLMusicIsland.h"
 #import <UIKit/UIKit.h>
 
 static UIImage* si(NSString *name) {
@@ -262,30 +263,8 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
 }
 
 - (void)showDynamicIslandWithTitle:(NSString *)title count:(NSUInteger)count isError:(BOOL)err {
-    UIWindow *window = [self keyWindow];
-    if (!window) return;
-
-    if (!self.dynamicIslandView) {
-        self.dynamicIslandView = [[KIV alloc] init];
-        CGFloat topInset = window.safeAreaInsets.top > 0 ? window.safeAreaInsets.top : 20;
-        CGFloat centerX = window.bounds.size.width / 2;
-        self.dynamicIslandView.center = CGPointMake(centerX, topInset + 19);
-        [window addSubview:self.dynamicIslandView];
-        [self.dynamicIslandView present];
-    }
-
-    [self.dynamicIslandView updateStatus:title count:count isError:err];
-
-    CGSize titleSize = [title sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:12 weight:UIFontWeightMedium]}];
-    CGSize countSize = [[NSString stringWithFormat:@"%lu", (unsigned long)count] sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:14 weight:UIFontWeightBold]}];
-    CGFloat width = 12 + 20 + 6 + titleSize.width + 8 + MAX(countSize.width, 40) + 12;
-    width = MAX(160, MIN(width, window.bounds.size.width - 40));
-    CGRect frame = self.dynamicIslandView.frame;
-    frame.size.width = width;
-    self.dynamicIslandView.frame = frame;
-
-    CGFloat topInset = window.safeAreaInsets.top > 0 ? window.safeAreaInsets.top : 20;
-    self.dynamicIslandView.center = CGPointMake(window.bounds.size.width / 2, topInset + 19);
+    /* 【合并】不再自建第二个胶囊岛：缓存清理状态统一显示在音乐灵动岛上 */
+    [LLLMusicIsland showCacheStatus:title count:count isError:err];
 }
 @end
 
@@ -316,6 +295,16 @@ void setCacheCleanerEnabled(BOOL enabled) {
     } else {
         [[KLM shared] stop];
     }
+}
+
+/* v2.2 灵动岛「清缓存」按钮：手动触发一次清理（无需开启自动监控） */
+void LLLCacheCleanNow(void) {
+    KLM *m = [KLM shared];
+    if (m.busy) return;
+    BOOL was = m.run;
+    m.run = YES;          // 临时放行 clean() 的 run 门槛
+    [m clean];
+    m.run = was;
 }
 
 BOOL isCacheCleanerEnabled(void) {

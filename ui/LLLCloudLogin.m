@@ -314,6 +314,12 @@ static UILabel     *gLoginHint = nil;
                     s.audioPlayer.currentTime = value;
                     [[LLLNowPlaying shared] updateElapsed:value duration:[LLLNowPlaying shared].duration];
                 }
+            } else if (cmd == LLLNPCommandVolume) {
+                /* v2.2 灵动岛独立音量：存偏好并应用到所有音乐播放器（不影响系统音量） */
+                double v = value;
+                if (v < 0) v = 0; if (v > 1) v = 1;
+                [[NSUserDefaults standardUserDefaults] setDouble:v forKey:@"LLL.volume"];
+                [s applyVolume];
             }
         }];
     });

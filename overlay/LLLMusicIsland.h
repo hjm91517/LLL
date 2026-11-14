@@ -22,6 +22,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)toggleExpanded;
 + (void)setExpanded:(BOOL)expanded;
 
+/// v2.2 缓存清理状态合并显示（CacheCleaner 调用，不再自建第二个胶囊）
++ (void)showCacheStatus:(nullable NSString *)text count:(NSUInteger)count isError:(BOOL)isError;
+
 /// 重新读一次 LLLNowPlaying 并刷新
 + (void)refresh;
 

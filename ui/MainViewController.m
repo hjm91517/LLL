@@ -707,6 +707,14 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     // 网易云入口（登录 / 我喜欢的 / 搜索）
     _playerCloudBtn = [self playerButton:@"cloud.fill" size:15 side:34 action:@selector(openCloudMusic)];
     _playerCloudBtn.backgroundColor = [LLLAccentColor() colorWithAlphaComponent:0.28];
+    /* v2.2 用户反馈找不到入口：改为带文字的「网易云」按钮 */
+    [_playerCloudBtn setTitle:@"网易云" forState:UIControlStateNormal];
+    _playerCloudBtn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    [_playerCloudBtn setImage:nil forState:UIControlStateNormal];
+    _playerCloudBtn.layer.cornerRadius = 17;
+    for (NSLayoutConstraint *c in _playerCloudBtn.constraints) {
+        if (c.firstAttribute == NSLayoutAttributeWidth) c.constant = 78;
+    }
     [_playerCard addSubview:_playerCloudBtn];
 
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[prev, _playerPlayBtn, next, _playerModeBtn]];
