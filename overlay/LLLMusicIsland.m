@@ -630,6 +630,12 @@ static NSString *LLLClock(NSTimeInterval t) {
 }
 
 /* 供 CacheCleaner 调用：自动清缓存的状态合并显示在灵动岛上 */
++ (void)clearCacheLabel {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (gCacheLabel) gCacheLabel.text = @"";
+    });
+}
+
 + (void)showCacheStatus:(NSString *)text count:(NSUInteger)count isError:(BOOL)isError {
     dispatch_async(dispatch_get_main_queue(), ^{
         [self buildIfNeeded];
@@ -639,10 +645,16 @@ static NSString *LLLClock(NSTimeInterval t) {
         if (text.length) [t appendString:text];
         if (count > 0) [t appendFormat:@" · %lu 个", (unsigned long)count];
         gCacheLabel.text = t;
-        [self showIsland];
-        gCacheLabel.textColor = isError
-            ? [UIColor colorWithRed:1 green:0.42 blue:0.42 alpha:1]
-            : [UIColor colorWithWhite:0.55 alpha:1];
+        /* v2.9: 只更新胶囊文字，不展开、不遮挡 */
+        if (isError) {
+            gCacheLabel.textColor = [UIColor colorWithRed:1 green:0.42 blue:0.42 alpha:1];
+        } else if ([text containsString:@"已清除"] || [text containsString:@"清理完毕"]) {
+            gCacheLabel.textColor = [UIColor colorWithRed:0.30 green:0.85 blue:0.45 alpha:1];
+        } else {
+            gCacheLabel.textColor = [UIColor colorWithRed:1 green:0.62 blue:0.20 alpha:1];
+        }
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(clearCacheLabel) object:nil];
+        [self performSelector:@selector(clearCacheLabel) withObject:nil afterDelay:3.0];
     });
 }
 
