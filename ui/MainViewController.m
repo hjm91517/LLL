@@ -1123,6 +1123,14 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 }
 
 - (void)showSettingsTab {
+    /* v3.1: 清掉任何残留的全屏遮罩，并把自己的面板提到最前，否则设置页看着在、其实点不到 */
+    for (UIWindow *w in UIApplication.sharedApplication.windows) {
+        for (UIView *v in [w.rootViewController.view.subviews copy]) {
+            if (v.tag == 99131 || v.tag == 99141) [v removeFromSuperview];
+        }
+    }
+    [self.view bringSubviewToFront:self.settingsView];
+    self.settingsView.userInteractionEnabled = YES;
     // 已经在设置页了，点多少次都别重播动画
     if (!self.settingsView.hidden && self.settingsView.alpha > 0.9) return;
 
