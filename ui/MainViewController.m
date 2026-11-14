@@ -1073,23 +1073,35 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 }
 
 - (void)showSrcTab {
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     [self setHeader:@"材质包" sub:[NSString stringWithFormat:@"目标 · %@", targetPathDisplayName()]];
     [self reloadSrcData];
     [self switchTo:self.st hide:@[self.qt, self.pt, self.pqt, self.musict] bar:nil];
 }
 
 - (void)showQueueTab {
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     [self setHeader:@"注入队列" sub:[NSString stringWithFormat:@"%lu 项待注入", (unsigned long)self.qn.count]];
     [self switchTo:self.qt hide:@[self.st, self.pt, self.pqt, self.musict] bar:self.ab];
 }
 
 - (void)showPluginTab {
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     [self setHeader:@"MCP 插件" sub:[NSString stringWithFormat:@"%lu 项可用", (unsigned long)self.pln.count]];
     [self reloadPluginData];
     [self switchTo:self.pt hide:@[self.st, self.qt, self.pqt, self.musict] bar:nil];
 }
 
 - (void)showPluginQueueTab {
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     [self setHeader:@"插件注入" sub:[NSString stringWithFormat:@"%lu 项待注入", (unsigned long)self.plqn.count]];
     [self switchTo:self.pqt hide:@[self.st, self.qt, self.pt, self.musict] bar:self.pab];
 }
