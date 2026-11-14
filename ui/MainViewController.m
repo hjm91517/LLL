@@ -1076,12 +1076,18 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     self.playerCard.hidden = YES;
     if (self.playerHeight) self.playerHeight.constant = 0;
 
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     [self setHeader:@"材质包" sub:[NSString stringWithFormat:@"目标 · %@", targetPathDisplayName()]];
     [self reloadSrcData];
     [self switchTo:self.st hide:@[self.qt, self.pt, self.pqt, self.musict] bar:nil];
 }
 
 - (void)showQueueTab {
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     self.playerCard.hidden = YES;
     if (self.playerHeight) self.playerHeight.constant = 0;
 
@@ -1093,12 +1099,18 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     self.playerCard.hidden = YES;
     if (self.playerHeight) self.playerHeight.constant = 0;
 
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     [self setHeader:@"MCP 插件" sub:[NSString stringWithFormat:@"%lu 项可用", (unsigned long)self.pln.count]];
     [self reloadPluginData];
     [self switchTo:self.pt hide:@[self.st, self.qt, self.pqt, self.musict] bar:nil];
 }
 
 - (void)showPluginQueueTab {
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     self.playerCard.hidden = YES;
     if (self.playerHeight) self.playerHeight.constant = 0;
 
