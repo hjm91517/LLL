@@ -78,12 +78,6 @@
                                         action:@selector(toggleCacheCleaner:) outSwitch:NULL];
     [stack addArrangedSubview:cacheCleanerRow];
 
-    /* v3.3：网易云只做登录 + 取流，播放甩给已装的外部播放器（Folii 等） */
-    UIView *extPlayerRow = [self switchRow:@"外部播放器播放 (Folii)"
-                                 switchOn:[LLLCloudMusic externalPlayerEnabled]
-                                   action:@selector(toggleExternalPlayer:) outSwitch:NULL];
-    [stack addArrangedSubview:extPlayerRow];
-
     UIButton *iconBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     iconBtn.translatesAutoresizingMaskIntoConstraints = NO;
     iconBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
@@ -248,11 +242,6 @@
 
 - (void)toggleCacheCleaner:(UISwitch *)sender {
     setCacheCleanerEnabled(sender.isOn);
-}
-
-- (void)toggleExternalPlayer:(UISwitch *)sender {
-    [LLLCloudMusic setExternalPlayerEnabled:sender.isOn];
-    ShowToast(sender.isOn ? @"播放将交给外部播放器" : @"已切回内置播放器", 1.6, YES, NO);
 }
 
 // 设置项统一容器：圆角浅底 + 细描边
