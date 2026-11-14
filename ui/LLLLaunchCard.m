@@ -7,6 +7,7 @@
 #import "LLLAnim.h"
 #import "PluginInfo.h"
 #import "AppTheme.h"
+#import "LLLUiKit.h"
 
 static UIWindow *gLaunchWin = nil;
 
@@ -191,7 +192,9 @@ void LLLShowLaunch(void) {
             gLDone = NO;
             LLLaunchRefresh();
 
-            card.center = CGPointMake(host.bounds.size.width / 2, host.bounds.size.height / 2);
+            card.center = CGPointMake(LLLUIKitHostSize(host).width / 2, LLLUIKitHostSize(host).height / 2);
+            card.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
+                                  | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
             LLLSpring(0.34, 0.86, ^{ card.alpha = 1; card.transform = CGAffineTransformIdentity; });
 
             gLTimer = [NSTimer timerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *t) {
@@ -325,7 +328,9 @@ void LLLProgressShow(NSString *title) {
                forControlEvents:UIControlEventTouchUpInside];
             [card addSubview:cancelBtn];
 
-            card.center = CGPointMake(host.bounds.size.width / 2, host.bounds.size.height / 2);
+            card.center = CGPointMake(LLLUIKitHostSize(host).width / 2, LLLUIKitHostSize(host).height / 2);
+            card.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
+                                  | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
             card.alpha = 0;
             card.transform = CGAffineTransformMakeScale(0.94, 0.94);
             LLLSpring(0.32, 0.86, ^{ card.alpha = 1; card.transform = CGAffineTransformIdentity; });

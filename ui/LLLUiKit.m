@@ -53,6 +53,15 @@ static UIWindow *LLLOverlayWindow(void) {
     return gLLLWin;
 }
 
+CGSize LLLUIKitHostSize(UIView *host) {
+    CGSize s = host ? host.bounds.size : CGSizeZero;
+    if (s.width < 16 || s.height < 16) {
+        CGSize scr = UIScreen.mainScreen.bounds.size;
+        if (scr.width > 16) s = scr;
+    }
+    return s;
+}
+
 #pragma mark - 启动动画
 
 void LLLShowSplash(void) {
@@ -68,7 +77,10 @@ void LLLShowSplash(void) {
             [host addSubview:cover];
 
             UIView *glow = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 260, 260)];
-            glow.center = CGPointMake(cover.bounds.size.width / 2, cover.bounds.size.height / 2 - 20);
+            glow.center = CGPointMake(LLLUIKitHostSize(host).width / 2,
+                                      LLLUIKitHostSize(host).height / 2 - 20);
+            glow.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
+                                  | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
             glow.backgroundColor = [LLLAccentColor() colorWithAlphaComponent:0.18];
             glow.layer.cornerRadius = 130;
             glow.alpha = 0;
@@ -204,8 +216,10 @@ static void LLLPresent(UIView *card) {
     [host addSubview:dim];
     [host addSubview:card];
 
-    card.center = CGPointMake(host.bounds.size.width / 2,
-                              host.bounds.size.height - card.bounds.size.height / 2 - 30);
+    card.center = CGPointMake(LLLUIKitHostSize(host).width / 2,
+                              LLLUIKitHostSize(host).height - card.bounds.size.height / 2 - 30);
+    card.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
+                          | UIViewAutoresizingFlexibleTopMargin;
     dim.alpha = 0;
     card.alpha = 0;
     card.transform = CGAffineTransformMakeTranslation(0, 240);
@@ -433,7 +447,9 @@ void LLLShowHUD(NSString *text, NSTimeInterval duration) {
             [box addSubview:l];
 
             box.frame = CGRectMake(0, 0, sz.width + 36, sz.height + 28);
-            box.center = CGPointMake(host.bounds.size.width / 2, host.bounds.size.height / 2);
+            box.center = CGPointMake(LLLUIKitHostSize(host).width / 2, LLLUIKitHostSize(host).height / 2);
+            box.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
+                                 | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
             box.alpha = 0;
             [host addSubview:box];
 

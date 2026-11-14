@@ -45,4 +45,9 @@ BOOL LLLProgressCancelled(void);
 /// 轻提示（不用系统 HUD）
 void LLLShowHUD(NSString *text, NSTimeInterval duration);
 
+/// 宿主视图尺寸兜底：窗口刚创建、尚未布局时 rootVC bounds 为 0×0，
+/// 直接用 host.bounds 居中会把卡片定位到左上角（「开头 UI 错乱」的根源）。
+/// 布局未完成时回退到屏幕尺寸；建议配合 autoresizing 弹性边距使用。
+CGSize LLLUIKitHostSize(UIView * _Nullable host);
+
 NS_ASSUME_NONNULL_END

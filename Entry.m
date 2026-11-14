@@ -15,10 +15,6 @@
 #import "LLLUiKit.h"
 #import "LLLStealth.h"
 #import "LLLZip.h"
-#import "LLLStealth.h"
-#import "LLLZip.h"
-#import "LLLStealth.h"
-#import "LLLZip.h"
 
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
@@ -226,10 +222,6 @@ static void LLLInit(void) {
                 gLLLDuplicateLoad = YES;
                 lllLog(@"!! 检测到重复加载的 bbhj online，本次注入不记账");
             }
-
-            LLLStealthInstall();
-
-            LLLStealthInstall();
 
             LLLStealthInstall();
 
