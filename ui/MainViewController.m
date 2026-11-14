@@ -8,6 +8,7 @@
 #import "LLLUiKit.h"
 #import "LLLCloudMusic.h"
 #import "LLLMusicIsland.h"
+#import "FoliaPlayer.h"
 #import <objc/runtime.h>
 
 #import "MainViewController+SettingsBackground.h"
@@ -1051,6 +1052,9 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 #pragma mark - 标签切换
 
 - (void)switchTo:(UITableView *)to hide:(NSArray *)others bar:(UIView *)bar {
+    /* 切页先把 Folia 收起来，否则它会一直盖在新页面上 */
+    [FoliaPlayer hide];
+
     // 已经停在这一页了 —— 直接返回，别再播一次过渡动画
     if (!to.hidden && to.alpha > 0.9) return;
 
@@ -1139,31 +1143,35 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 }
 
 - (void)showMusicTab {
-    lllLog(@"进入音乐页 card=%@ btn=%@", _playerCard, _playerCloudBtn);
-    [self setHeader:@"音乐播放器" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
-    [self reloadMusicData];
-    [self startProgressTimer];
+    /* 音乐页整体交给 Folia 2.1.5（内嵌 www，WKWebView 跑 file://）：
+       原生播放器卡片和曲库表都不再显示，避免两套 UI 抢同一块区域 */
+    [self setHeader:@"音乐播放器" sub:@"Folia 2.1.5 · 动态歌词"];
 
-    /* 【修复】进入音乐页必须展开播放器卡片并显示控制栏。
-       此前从未恢复：卡片 hidden=YES 且 playerHeight 恒为 0 → 音乐页全空 */
-    self.playerCard.hidden = NO;
-    if (self.playerHeight) self.playerHeight.constant = 310;
-    // 2.4: 只留 playerCard 一套播放 UI
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
     self.musicControlBar.hidden = YES;
     self.musicControlBar.alpha = 0;
 
     [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
+    [self lllAttachFolia];
+}
 
-    // 切换之后再记一次，这次是真实布局状态
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        lllLog(@"音乐页布局 card=%@ hidden=%d h=%.0f | table=%@ hidden=%d h=%.0f | 曲目=%lu",
-               NSStringFromCGRect(self.playerCard.frame), self.playerCard.hidden,
-               self.playerHeight ? self.playerHeight.constant : -1,
-               NSStringFromCGRect(self.musict.frame), self.musict.hidden,
-               self.musict.bounds.size.height,
-               (unsigned long)self.musicNames.count);
-    });
+- (void)lllAttachFolia {
+    UIView *host = self.contentContainerView;
+    if (!host) return;
+
+    self.musict.hidden = YES;
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
+    __weak typeof(self) w = self;
+    [FoliaPlayer loadInto:host completion:^(BOOL ok) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+        if (!ok) {
+            ShowToast(@"Folia 解包失败，进度见 Documents/LLL_runtime.log", 2.4, YES, YES);
+        }
+    }];
 }
 
 - (void)showSettingsTab {

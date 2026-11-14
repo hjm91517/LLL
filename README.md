@@ -61,9 +61,12 @@ make clean all FINALPACKAGE=1 DEBUG=0 ARCHS="arm64 arm64e" TARGET="iphone:clang:
 | 灵动岛点"网易云"没反应 | 临时 new 的 MainViewController 没人持有，ARC 立刻回收，回调打在 nil 上 | 常驻宿主 `MainViewController.cloudHost`，浮窗创建时登记 |
 | 关掉登录卡片后仍会突然弹"登录成功" | 二维码轮询没停 | `dismissCloudLoginCard` 里 `cancelLogin` |
 
-## 外部播放器（Folii 路线）
+## Folia 播放器（3.4 起）
 
-设置里打开「外部播放器播放 (Folii)」后：网易云只负责登录、歌单、取流，
-播放地址通过 `folii://play?url=` → `folii://open?url=` → `music://` → `qqmusic://`
-依次交给已装的播放器；一个都没接住就回退内置 AVPlayer。
-开关键：`LLL.externalPlayer`。
+音乐页整包换成 Folia 2.1.5 的前端（`core/folia-www.zip` 11MB，incbin 进 dylib）：
+
+- 首次进音乐页解包到 `Documents/LLL/folia/www`（版本号写在 `version.txt`，升级会自动重解）
+- `WKWebView` 用 `loadFileURL:allowingReadAccessToURL:` 打开 `index.html`，页面里全是相对路径，ES module 在 file:// 下正常解析
+- 内联播放 + 不要求用户手势；进页面时把 `AVAudioSession` 设成 `Playback`，静音键开着也出声
+- 切到别的页只 `hidden`，不销毁，播放/曲库状态都留着
+- 原来的「外部播放器播放 (Folii)」开关和 `folii://` 跳转代码已删除

@@ -385,15 +385,6 @@ static MainViewController *gCloudHostOwned = nil;
                 return;
             }
 
-            /* Folii 路线：登录/取流还在网易云，播放交给已装的第三方播放器；
-               没装就回落到内置 AVPlayer（开关见 设置 → 外部播放器） */
-            if ([LLLCloudMusic sendToExternalPlayer:url title:song[@"name"]]) {
-                [s stopMusic];
-                [[LLLNowPlaying shared] setPlaying:NO];
-                ShowToast(@"已交给外部播放器", 2.0, YES, NO);
-                return;
-            }
-
             /* 内置播放前先停本地音乐，避免两路声音叠着放 */
             [s stopMusic];
             [s.cloudPlayer pause];

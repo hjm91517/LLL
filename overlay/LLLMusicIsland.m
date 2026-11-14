@@ -22,6 +22,7 @@ static UIView     *gPill   = nil;
 
 static UIImageView *gArtSm = nil, *gArtLg = nil;
 static UILabel     *gTitleSm = nil, *gTitleLg = nil, *gArtistLg = nil;
+static UIView      *gTitleClip = nil;   /* 跑马灯裁剪层：文字只能在这一格内滚动 */
 static UILabel     *gTimeLg = nil, *gDurLg = nil;
 static UIView      *gBarsBox = nil;
 static NSArray<UIView *> *gBars = nil;
@@ -216,9 +217,17 @@ static void (^gTapHandler)(void) = nil;
     gArtLg.hidden = YES;
     [gPill addSubview:gArtLg];
 
+    /* 【跑马灯越界修复】标题外面套一层裁剪视图。
+       以前直接把 label 左移，文字会滑出胶囊、压到封面甚至飘到岛外 */
+    gTitleClip = [[UIView alloc] initWithFrame:CGRectMake(39, 0, 120, kCompactH)];
+    gTitleClip.clipsToBounds = YES;
+    gTitleClip.backgroundColor = UIColor.clearColor;
+    gTitleClip.userInteractionEnabled = NO;
+    [gPill addSubview:gTitleClip];
+
     gTitleSm = [self label:12 weight:UIFontWeightSemibold color:UIColor.whiteColor];
-    gTitleSm.frame = CGRectMake(39, 0, 120, kCompactH);
-    [gPill addSubview:gTitleSm];
+    gTitleSm.frame = CGRectMake(0, 0, 120, kCompactH);
+    [gTitleClip addSubview:gTitleSm];
 
     gTitleLg = [self label:15 weight:UIFontWeightSemibold color:UIColor.whiteColor];
     gTitleLg.frame = CGRectMake(86, 16, kExpandW - 86 - 46, 20);
@@ -396,6 +405,7 @@ static void (^gTapHandler)(void) = nil;
 
         gArtSm.hidden = expanded;
         gTitleSm.hidden = expanded;
+        gTitleClip.hidden = expanded;
         gBarsBox.hidden = expanded;
 
         gArtLg.hidden = !expanded;
@@ -594,6 +604,7 @@ static NSString *LLLClock(NSTimeInterval t) {
             [gCollapseTimer invalidate];
             gCollapseTimer = nil;
             [gPill.layer removeAllAnimations];
+            [gTitleSm.layer removeAllAnimations];
             [UIView animateWithDuration:0.22 animations:^{
                 gPill.alpha = 0;
                 gPill.transform = CGAffineTransformMakeScale(0.86, 0.86);
