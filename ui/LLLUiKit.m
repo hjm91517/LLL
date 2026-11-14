@@ -6,6 +6,7 @@
 #import "LLLUiKit.h"
 #import "LLLAnim.h"
 #import "AppTheme.h"
+#import "BaseComponents.h"
 #import <objc/runtime.h>
 
 #pragma mark - 按钮 block 包装
@@ -41,10 +42,12 @@ static UIWindow *LLLOverlayWindow(void) {
                 break;
             }
         }
-        gLLLWin = scene ? [[UIWindow alloc] initWithWindowScene:scene]
-                        : [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+        /* 【交互修复】必须用 BaseOverlayWindow（带 hitTest 穿透）：
+         * 普通 UIWindow 全屏常驻会把所有触摸吞进空的根视图，导致整个界面点不动 */
+        gLLLWin = scene ? [[BaseOverlayWindow alloc] initWithWindowScene:scene]
+                        : [[BaseOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     } else {
-        gLLLWin = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+        gLLLWin = [[BaseOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     }
     gLLLWin.windowLevel = UIWindowLevelAlert + 100;
     gLLLWin.backgroundColor = UIColor.clearColor;
