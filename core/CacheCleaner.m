@@ -238,7 +238,7 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
         dispatch_async(dispatch_get_main_queue(), ^{
             self.busy = NO;
             if (found == 0) {
-                [self showDynamicIslandWithTitle:@"无缓存" count:0 isError:NO];
+                // 2.5: 无缓存时静默，不弹胶囊
             } else {
                 [self showDynamicIslandWithTitle:@"发现缓存" count:found isError:NO];
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{

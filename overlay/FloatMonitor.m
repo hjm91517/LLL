@@ -142,6 +142,28 @@ void toggleMainWindow(void) {
     }
 }
 
+static UIViewController *LLLTopVC(void) {
+    UIWindow *win = nil;
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+            if ([s isKindOfClass:UIWindowScene.class] &&
+                s.activationState == UISceneActivationStateForegroundActive) {
+                win = ((UIWindowScene *)s).windows.firstObject;
+                break;
+            }
+        }
+    }
+    if (!win) win = UIApplication.sharedApplication.keyWindow;
+    UIViewController *vc = win.rootViewController;
+    while (vc.presentedViewController) vc = vc.presentedViewController;
+    return vc;
+}
+
+@interface FloatingBallView () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+- (void)longPress:(UILongPressGestureRecognizer *)g;
+- (void)reloadIcon;
+@end
+
 @implementation FloatingBallView {
     UIButton *_btn;
     UIPanGestureRecognizer *_pan;
@@ -176,6 +198,11 @@ void toggleMainWindow(void) {
         _pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)];
         _pan.cancelsTouchesInView = NO;
         [self addGestureRecognizer:_pan];
+
+        UILongPressGestureRecognizer *lp =
+            [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPress:)];
+        lp.minimumPressDuration = 0.6;
+        [self addGestureRecognizer:lp];
     }
     return self;
 }
@@ -189,6 +216,46 @@ void toggleMainWindow(void) {
 }
 
 - (void)tap { toggleMainWindow(); }
+
+- (void)longPress:(UILongPressGestureRecognizer *)g {
+    if (g.state != UIGestureRecognizerStateBegan) return;
+    UIViewController *top = LLLTopVC();
+    if (!top || top.isBeingDismissed) return;
+    if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) return;
+
+    UIImagePickerController *p = [UIImagePickerController new];
+    p.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    p.delegate = self;
+    p.allowsEditing = YES;
+    [top presentViewController:p animated:YES completion:nil];
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker
+        didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey, id> *)info {
+    UIImage *img = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    if (!img) return;
+
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(256, 256), NO, 1);
+    [img drawInRect:CGRectMake(0, 0, 256, 256)];
+    UIImage *out = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+
+    NSString *path = [docsPath() stringByAppendingPathComponent:@"bbhj_icon.png"];
+    BOOL ok = [UIImagePNGRepresentation(out ?: img) writeToFile:path atomically:YES];
+    [self reloadIcon];
+    ShowToast(ok ? @"悬浮窗图标已更新" : @"图标保存失败", 1.6, YES, !ok);
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)reloadIcon {
+    UIImage *custom = customFloatIcon();
+    [_btn setImage:(custom ?: floatIcon()) forState:UIControlStateNormal];
+    _btn.imageView.contentMode = UIViewContentModeScaleAspectFill;
+}
 
 - (void)pan:(UIPanGestureRecognizer *)gesture {
     UIView *superview = self.superview;
@@ -377,7 +444,7 @@ void toggleMainWindow(void) {
             [valArr addObject:val];
         }
         _names = nameArr; _vals = valArr; _bars = barArr;
-        _cpuL = valArr[0]; _memL = valArr[1]; _fpsL = valArr[2];
+        if (valArr.count >= 3) { _cpuL = valArr[0]; _memL = valArr[1]; _fpsL = valArr[2]; }
 
         _graph = [[MonitorGraphView alloc] init];
         [self addSubview:_graph];

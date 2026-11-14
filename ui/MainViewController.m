@@ -1104,9 +1104,11 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
        此前从未恢复：卡片 hidden=YES 且 playerHeight 恒为 0 → 音乐页全空 */
     self.playerCard.hidden = NO;
     if (self.playerHeight) self.playerHeight.constant = 310;
-    self.musicControlBar.alpha = 1;
+    // 2.4: 只留 playerCard 一套播放 UI
+    self.musicControlBar.hidden = YES;
+    self.musicControlBar.alpha = 0;
 
-    [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:self.musicControlBar];
+    [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
 
     // 切换之后再记一次，这次是真实布局状态
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
