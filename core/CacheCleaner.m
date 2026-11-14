@@ -13,26 +13,34 @@ static UIImage* si(NSString *name) {
 
 static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
                NSMutableArray *ok, NSMutableArray *bad, NSUInteger *found,
-               NSString *excludeDir) {
+               NSString *excludeDir, NSUInteger cap, NSUInteger *scanned) {
+    if (*scanned >= cap) return;
     NSDirectoryEnumerator *e = [fm enumeratorAtPath:dir];
     for (NSString *p in e) {
-        NSString *fp = [dir stringByAppendingPathComponent:p];
-        if (excludeDir && [fp hasPrefix:excludeDir]) {
-            BOOL exDir = NO;
-            if ([fm fileExistsAtPath:fp isDirectory:&exDir] && exDir) [e skipDescendants];
-            continue;
-        }
-        BOOL isDir;
-        if ([fm fileExistsAtPath:fp isDirectory:&isDir] && !isDir) {
-            NSString *n = p.lastPathComponent;
-            if ([regex rangeOfFirstMatchInString:n options:0 range:NSMakeRange(0, n.length)].location != NSNotFound) {
-                (*found)++;
-                NSError *err = nil;
-                if ([fm removeItemAtPath:fp error:&err])
-                    [ok addObject:fp];
-                else {
-                    [bad addObject:fp];
-                    NSLog(@"[CacheCleaner] 删除失败: %@, 错误: %@", fp, err.localizedDescription);
+        @autoreleasepool {
+            /* 【卡顿修复】packcache 可能有几万文件：每轮限量 + 每次迭代
+             * autoreleasepool，防止一次性扫描把内存/I/O 打爆导致整机卡顿；
+             * 本轮扫不完下一轮(30s)继续。 */
+            if (*scanned >= cap) return;
+            (*scanned)++;
+            NSString *fp = [dir stringByAppendingPathComponent:p];
+            if (excludeDir && [fp hasPrefix:excludeDir]) {
+                BOOL exDir = NO;
+                if ([fm fileExistsAtPath:fp isDirectory:&exDir] && exDir) [e skipDescendants];
+                continue;
+            }
+            BOOL isDir;
+            if ([fm fileExistsAtPath:fp isDirectory:&isDir] && !isDir) {
+                NSString *n = p.lastPathComponent;
+                if ([regex rangeOfFirstMatchInString:n options:0 range:NSMakeRange(0, n.length)].location != NSNotFound) {
+                    (*found)++;
+                    NSError *err = nil;
+                    if ([fm removeItemAtPath:fp error:&err])
+                        [ok addObject:fp];
+                    else {
+                        [bad addObject:fp];
+                        NSLog(@"[CacheCleaner] 删除失败: %@, 错误: %@", fp, err.localizedDescription);
+                    }
                 }
             }
         }
@@ -214,11 +222,14 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
         NSUInteger found = 0;
         NSRegularExpression *regex = killenRegex();
         NSString *base = neteaseGameBasePath();
+        /* 【卡顿修复】每轮最多扫 5000 个文件，扫不完下轮继续，避免一次性 I/O 风暴 */
+        NSUInteger cap = 5000, scanned = 0;
 
         for (NSString *sub in @[@"resource_packs", @"packcache", @"storge"]) {
             NSString *dir = [base stringByAppendingPathComponent:sub];
+            if (scanned >= cap) break;
             if ([fm fileExistsAtPath:dir]) {
-                sd(dir, regex, fm, ok, bad, &found, injectedDir);
+                sd(dir, regex, fm, ok, bad, &found, injectedDir, cap, &scanned);
             }
         }
 

@@ -1099,7 +1099,14 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [self setHeader:@"音乐播放器" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
     [self reloadMusicData];
     [self startProgressTimer];
-    [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
+
+    /* 【修复】进入音乐页必须展开播放器卡片并显示控制栏。
+       此前从未恢复：卡片 hidden=YES 且 playerHeight 恒为 0 → 音乐页全空 */
+    self.playerCard.hidden = NO;
+    if (self.playerHeight) self.playerHeight.constant = 310;
+    self.musicControlBar.alpha = 1;
+
+    [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:self.musicControlBar];
 
     // 切换之后再记一次，这次是真实布局状态
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
