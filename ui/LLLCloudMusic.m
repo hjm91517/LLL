@@ -462,6 +462,8 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
         if (!s) return;
 
         NSInteger code = [json isKindOfClass:NSDictionary.class] ? [json[@"code"] integerValue] : -1;
+        lllLog(@"网易云 weapi 登录 code=%ld msg=%@", (long)code,
+               [json isKindOfClass:NSDictionary.class] ? json[@"message"] : @"");
         if (code != 200) {
             NSString *msg = [json isKindOfClass:NSDictionary.class] ? json[@"message"] : nil;
             if (err) msg = @"网络错误，稍后再试";

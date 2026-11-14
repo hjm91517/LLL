@@ -237,6 +237,10 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
 
         dispatch_async(dispatch_get_main_queue(), ^{
             self.busy = NO;
+            if (found > 0) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{ if (self.run) [self clean]; });
+            }
             if (found == 0) {
                 // 2.5: 无缓存时静默，不弹胶囊
             } else {
