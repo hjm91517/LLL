@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""v2.6 补丁（幂等）。v2.4/v2.5 已固化进源码，这里只放新改动：
-1) 启动/进度窗口不隐藏 + 非穿透 UIWindow → 卡全屏吞触摸（登录、设置全点不了）
-2) 设置页新增「更换悬浮窗图标」入口
-3) 悬浮球图标刷新 API
-"""
+"""v2.6 补丁（幂等）。"""
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,12 +22,20 @@ def rep(p, old, new, tag):
     wr(p, s.replace(old, new, 1))
     log.append('patch %s (%s)' % (p, tag))
 
-# ============ 1. 卡片窗口：穿透 + 用完隐藏 ============
+def append_once(p, marker, block, tag):
+    s = rd(p)
+    if marker in s:
+        log.append('SKIP  %s (%s)' % (p, tag))
+        return
+    wr(p, s + block)
+    log.append('append %s (%s)' % (p, tag))
+
+# 1. 卡片窗口穿透 + 用完隐藏
 rep('ui/LLLLaunchCard.m',
     'static UIWindow *gLaunchWin = nil;',
     '''static UIWindow *gLaunchWin = nil;
 
-/* 普通 UIWindow 透明全屏常驻会把触摸全吃掉（登录按钮/设置都点不了） */
+/* 普通 UIWindow 透明全屏常驻会把触摸全吃掉（登录/设置都点不了） */
 @interface LLLCardWin : UIWindow @end
 @implementation LLLCardWin
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
@@ -49,22 +53,18 @@ rep('ui/LLLLaunchCard.m',
     'use LLLCardWin')
 
 rep('ui/LLLLaunchCard.m',
-    '                                         completion:^(BOOL f) { [card removeFromSuperview]; }];',
-    '                                         completion:^(BOOL f) { [card removeFromSuperview]; gLaunchWin.hidden = YES; }];',
+    'completion:^(BOOL f) { [card removeFromSuperview]; }];',
+    'completion:^(BOOL f) { [card removeFromSuperview]; gLaunchWin.hidden = YES; }];',
     'hide launch win')
 
 rep('ui/LLLLaunchCard.m',
-    '''                             completion:^(BOOL f) {
-                [card removeFromSuperview];
+    '''                [card removeFromSuperview];
+                [dim removeFromSuperview];''',
+    '''                [card removeFromSuperview];
                 [dim removeFromSuperview];
-            }];''',
-    '''                             completion:^(BOOL f) {
-                [card removeFromSuperview];
-                [dim removeFromSuperview];
-                gLaunchWin.hidden = YES;
-            }];''', 'hide progress win')
+                gLaunchWin.hidden = YES;''', 'hide progress win')
 
-# ============ 2. 悬浮球：抽 presentIconPicker + C 入口 ============
+# 2. 悬浮球：抽出 presentIconPicker
 rep('overlay/FloatMonitor.m',
     '- (void)reloadIcon;\n@end',
     '- (void)reloadIcon;\n- (void)presentIconPicker;\n@end', 'declare picker')
@@ -81,23 +81,26 @@ rep('overlay/FloatMonitor.m',
 - (void)presentIconPicker {
     UIViewController *top = LLLTopVC();''', 'split picker')
 
-rep('overlay/FloatMonitor.m',
-    '@implementation FloatingBallView {',
-    '''@implementation FloatingBallView {''', 'noop')
-
-s = rd('overlay/FloatMonitor.m')
-if 'LLLPresentFloatIconPicker' not in s:
-    wr('overlay/FloatMonitor.m', s + '''
+append_once('overlay/FloatMonitor.m', 'LLLPresentFloatIconPicker', '''
 
 void LLLPresentFloatIconPicker(void) {
     if (g_ballView) [g_ballView presentIconPicker];
 }
-''')
-    log.append('append LLLPresentFloatIconPicker')
 
-# ============ 3. 设置页新增入口 ============
+@interface MainViewController (LLLIconSetting)
+- (void)lllChangeFloatIcon;
+@end
+
+@implementation MainViewController (LLLIconSetting)
+- (void)lllChangeFloatIcon {
+    LLLPresentFloatIconPicker();
+}
+@end
+''', 'picker api')
+
+# 3. 设置页入口
 rep('ui/MainViewController+SettingsBackground.m',
-    '''    [stack addArrangedSubview:cacheCleanerRow];''',
+    '    [stack addArrangedSubview:cacheCleanerRow];',
     '''    [stack addArrangedSubview:cacheCleanerRow];
 
     UIButton *iconBtn = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -111,7 +114,7 @@ rep('ui/MainViewController+SettingsBackground.m',
     [stack addArrangedSubview:iconBtn];
     [iconBtn.heightAnchor constraintEqualToConstant:44].active = YES;''', 'icon row')
 
-# ============ 4. 版本 ============
+# 4. 版本
 rep('core/PluginInfo.h', '#define kPluginVersion @"2.5"', '#define kPluginVersion @"2.6"', 'version')
 
 for l in log:
