@@ -27,7 +27,11 @@
 - (void)injectPluginsWithType:(NSInteger)type;
 - (void)injectPersonalSave;
 - (void)doInjectPluginsToDir:(NSString *)dir;
+- (void)dismissCloudCard;
+- (void)searchCloudMusic;
+- (void)doCloudSearch;
 - (void)packLongPress:(UILongPressGestureRecognizer *)g;
+- (void)showLikedSongs;
 - (NSString *)summaryText:(NSString *)verb ok:(NSArray *)ok fail:(NSArray *)fail;
 
 @end

@@ -25,6 +25,7 @@
 @property (nonatomic, strong) UIButton *playPauseBtn, *speedBtn, *modeBtn;
 @property (nonatomic, strong) AVAudioPlayer *audioPlayer;
 @property (nonatomic, strong) AVPlayer *videoMusicPlayer;
+@property (nonatomic, strong) AVPlayer *cloudPlayer;
 @property (nonatomic, strong) UISlider *volumeSlider;
 @property (nonatomic, strong) UISlider *progressSlider;
 @property (nonatomic, strong) UILabel *nowPlayingLabel;
@@ -38,6 +39,7 @@
 @property (nonatomic, strong) UIImageView *playerCover;
 @property (nonatomic, strong) UIButton *playerPlayBtn;
 @property (nonatomic, strong) UIButton *playerModeBtn;
+@property (nonatomic, strong) UIButton *playerCloudBtn;
 @property (nonatomic, strong) UISlider *playerProgress;
 @property (nonatomic, strong) UISlider *playerVolume;
 

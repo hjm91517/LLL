@@ -4,11 +4,15 @@
 #import "BaseComponents.h"
 #import "LLLAnim.h"
 #import "LLLUiKit.h"
+#import "LLLCloudMusic.h"
 #import "LLLNowPlaying.h"
+#import "LLLCloudLogin.h"
 #import "EffectInjector.h"
 #import "LLLMusicIsland.h"
 #import <objc/runtime.h>
 #import <AVFoundation/AVFoundation.h>
+
+static void (^gLLLCloseCloudCard)(void) = nil;
 
 @implementation MainViewController (Features)
 
@@ -258,6 +262,88 @@
 
 #pragma mark - 网易云
 
+- (void)dismissCloudCard {
+    if (gLLLCloseCloudCard) { gLLLCloseCloudCard(); gLLLCloseCloudCard = nil; }
+}
+
+static UITextField *gSearchField = nil;
+static void (^gSearchClose)(void) = nil;
+
+- (void)searchCloudMusic {
+    if (![LLLCloudMusic shared].loggedIn) {
+        ShowToast(@"先登录网易云", 1.5, YES, YES);
+        [self openCloudMusic];
+        return;
+    }
+
+    LLLShowCustomCard(320, 200, ^(UIView *card, void (^close)(void)) {
+        gSearchClose = [close copy];
+        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
+        card.frame = CGRectMake(0, 0, w, 156);
+
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 16, w - 32, 22)];
+        t.text = @"搜索网易云音乐";
+        t.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        t.textColor = UIColor.whiteColor;
+        t.textAlignment = NSTextAlignmentCenter;
+        [card addSubview:t];
+
+        UITextField *f = [[UITextField alloc] initWithFrame:CGRectMake(16, 50, w - 32, 38)];
+        f.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
+        f.layer.cornerRadius = 10;
+        f.textColor = UIColor.whiteColor;
+        f.tintColor = LLLAccentColor();
+        f.placeholder = @"歌名 / 歌手";
+        f.font = [UIFont systemFontOfSize:14];
+        f.autocorrectionType = UITextAutocorrectionTypeNo;
+        f.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        f.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 38)];
+        f.leftViewMode = UITextFieldViewModeAlways;
+        [card addSubview:f];
+        gSearchField = f;
+
+        UIButton *go = [UIButton buttonWithType:UIButtonTypeSystem];
+        go.frame = CGRectMake(16, 98, w - 32, 42);
+        go.backgroundColor = LLLAccentColor();
+        go.layer.cornerRadius = 12;
+        [go setTitle:@"搜索" forState:UIControlStateNormal];
+        [go setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+        go.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        [go addTarget:self action:@selector(doCloudSearch) forControlEvents:UIControlEventTouchUpInside];
+        [card addSubview:go];
+    });
+}
+
+- (void)doCloudSearch {
+    NSString *kw = [gSearchField.text stringByTrimmingCharactersInSet:
+                    [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (!kw.length) { ShowToast(@"先输入关键词", 1.5, YES, YES); return; }
+
+    if (gSearchClose) { gSearchClose(); gSearchClose = nil; }
+    gSearchField = nil;
+
+    ShowToast(@"搜索中…", 1.2, YES, NO);
+    __weak typeof(self) w = self;
+    [[LLLCloudMusic shared] searchSongs:kw done:^(NSArray<NSDictionary *> *songs, NSString *err) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (!s) return;
+            if (!songs.count) { ShowToast(err.length ? err : @"没搜到", 2, YES, YES); return; }
+
+            NSMutableArray *titles = [NSMutableArray array];
+            for (NSDictionary *sg in songs) {
+                [titles addObject:[NSString stringWithFormat:@"%@ - %@", sg[@"name"], sg[@"artist"]]];
+            }
+            [self setCloudQueue:songs];
+            LLLShowList([NSString stringWithFormat:@"“%@” 的结果", kw],
+                        [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count],
+                        titles, ^(NSInteger idx) {
+                if (idx >= 0 && idx < (NSInteger)songs.count) [s playCloudSong:songs[(NSUInteger)idx]];
+            });
+        });
+    }];
+}
+
 - (void)packLongPress:(UILongPressGestureRecognizer *)g {
     if (g.state != UIGestureRecognizerStateBegan) return;
 
@@ -290,6 +376,34 @@
         ShowToast([NSString stringWithFormat:@"已加入队列: %@", name], 1.5, YES, NO);
         PlayHaptic(YES);
     });
+}
+
+- (void)showLikedSongs {
+    ShowToast(@"正在拉取「我喜欢的音乐」…", 1.2, YES, NO);
+    [[LLLCloudMusic shared] loadLikedSongs:^(NSArray<NSDictionary *> *songs, NSString *err) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!songs.count) {
+                ShowToast(err.length ? err : @"列表为空", 2.2, YES, YES);
+                PlayHaptic(NO);
+                return;
+            }
+            // 列表一次最多渲染 300 条，否则上千个 UIButton 会把主线程干死
+            NSUInteger limit = MIN(songs.count, (NSUInteger)300);
+            NSMutableArray *titles = [NSMutableArray arrayWithCapacity:limit];
+            for (NSUInteger i = 0; i < limit; i++) {
+                NSDictionary *sg = songs[i];
+                [titles addObject:[NSString stringWithFormat:@"%@ - %@", sg[@"name"], sg[@"artist"]]];
+            }
+            NSString *msg = (songs.count > limit)
+                ? [NSString stringWithFormat:@"共 %lu 首，先显示前 %lu 首", (unsigned long)songs.count, (unsigned long)limit]
+                : [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count];
+
+            [self setCloudQueue:songs];
+            LLLShowList(@"我喜欢的音乐", msg, titles, ^(NSInteger idx) {
+                if (idx >= 0 && idx < (NSInteger)limit) [self playCloudSong:songs[(NSUInteger)idx]];
+            });
+        });
+    }];
 }
 
 #pragma mark - 材质注入

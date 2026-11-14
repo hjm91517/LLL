@@ -14,6 +14,3 @@ dSYM/
 
 *.log
 .DS_Store
-
-# Folia 前端整包（incbin 进 dylib，必须入库）
-!core/folia-www.zip

@@ -51,6 +51,5 @@ typedef NS_ENUM(NSInteger, BGSwitchMode) {
 - (void)stopTimer;
 - (void)startTimer;
 - (void)lllApplySafeAreaPadding;
-- (void)lllAttachFolia;
 
 @end

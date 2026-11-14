@@ -6,8 +6,8 @@
 #import "PluginInfo.h"
 #import "LLLAnim.h"
 #import "LLLUiKit.h"
+#import "LLLCloudMusic.h"
 #import "LLLMusicIsland.h"
-#import "FoliaPlayer.h"
 #import <objc/runtime.h>
 
 #import "MainViewController+SettingsBackground.h"
@@ -437,6 +437,22 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [_volumeSlider addTarget:self action:@selector(volumeChanged:) forControlEvents:UIControlEventValueChanged];
     [_musicControlBar addSubview:_volumeSlider];
 
+    UIButton *cloudBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    cloudBtn.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg =
+            [UIImageSymbolConfiguration configurationWithPointSize:16 weight:UIImageSymbolWeightSemibold];
+        [cloudBtn setImage:[UIImage systemImageNamed:@"cloud.fill" withConfiguration:cfg]
+                  forState:UIControlStateNormal];
+    }
+    [cloudBtn setTitle:@"云" forState:UIControlStateNormal];
+    cloudBtn.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
+    cloudBtn.tintColor = UIColor.whiteColor;
+    cloudBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
+    cloudBtn.layer.cornerRadius = 16;
+    [cloudBtn addTarget:self action:@selector(openCloudMusic) forControlEvents:UIControlEventTouchUpInside];
+    [_musicControlBar addSubview:cloudBtn];
+
     [NSLayoutConstraint activateConstraints:@[
         [_nowPlayingLabel.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:20],
         [_nowPlayingLabel.topAnchor constraintEqualToAnchor:_musicControlBar.topAnchor constant:10],
@@ -451,8 +467,12 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         [_volumeSlider.leadingAnchor constraintEqualToAnchor:_musicControlBar.leadingAnchor constant:20],
         [_volumeSlider.bottomAnchor constraintEqualToAnchor:_musicControlBar.bottomAnchor constant:-14],
         [_volumeSlider.heightAnchor constraintEqualToConstant:26],
-        [_volumeSlider.trailingAnchor constraintEqualToAnchor:_musicControlBar.trailingAnchor constant:-16],
+        [_volumeSlider.trailingAnchor constraintEqualToAnchor:cloudBtn.leadingAnchor constant:-12],
 
+        [cloudBtn.trailingAnchor constraintEqualToAnchor:_musicControlBar.trailingAnchor constant:-16],
+        [cloudBtn.bottomAnchor constraintEqualToAnchor:_musicControlBar.bottomAnchor constant:-10],
+        [cloudBtn.widthAnchor constraintEqualToConstant:44],
+        [cloudBtn.heightAnchor constraintEqualToConstant:34],
     ]];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -691,6 +711,19 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     UIButton *next = [self playerButton:@"forward.fill" size:20 side:44 action:@selector(nextMusic)];
     _playerModeBtn = [self playerButton:@"repeat" size:18 side:44 action:@selector(switchLoopMode)];
 
+    // 网易云入口（登录 / 我喜欢的 / 搜索）
+    _playerCloudBtn = [self playerButton:@"cloud.fill" size:15 side:34 action:@selector(openCloudMusic)];
+    _playerCloudBtn.backgroundColor = [LLLAccentColor() colorWithAlphaComponent:0.28];
+    /* v2.2 用户反馈找不到入口：改为带文字的「网易云」按钮 */
+    [_playerCloudBtn setTitle:@"网易云" forState:UIControlStateNormal];
+    _playerCloudBtn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    [_playerCloudBtn setImage:nil forState:UIControlStateNormal];
+    _playerCloudBtn.layer.cornerRadius = 17;
+    for (NSLayoutConstraint *c in _playerCloudBtn.constraints) {
+        if (c.firstAttribute == NSLayoutAttributeWidth) c.constant = 78;
+    }
+    [_playerCard addSubview:_playerCloudBtn];
+
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[prev, _playerPlayBtn, next, _playerModeBtn]];
     row.translatesAutoresizingMaskIntoConstraints = NO;
     row.axis = UILayoutConstraintAxisHorizontal;
@@ -741,8 +774,10 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         [_playerCover.heightAnchor constraintEqualToConstant:84],
 
         [_playerTitle.leadingAnchor constraintEqualToAnchor:_playerCover.trailingAnchor constant:14],
-        [_playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:_playerCard.trailingAnchor constant:-16],
+        [_playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:_playerCloudBtn.leadingAnchor constant:-10],
 
+        [_playerCloudBtn.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-16],
+        [_playerCloudBtn.topAnchor constraintEqualToAnchor:_playerCard.topAnchor constant:18],
         [_playerTitle.topAnchor constraintEqualToAnchor:_playerCover.topAnchor constant:8],
 
         [_playerArtist.leadingAnchor constraintEqualToAnchor:_playerTitle.leadingAnchor],
@@ -910,6 +945,9 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         _bars.barColor = accent;
         [_bars setNeedsDisplay];
     }
+    if (_playerCloudBtn) {
+        _playerCloudBtn.backgroundColor = [accent colorWithAlphaComponent:0.28];
+    }
     if (_playerPlayBtn) {
         _playerPlayBtn.backgroundColor = accent;
         LLLGlow(_playerPlayBtn, accent, 14, 0.5);
@@ -1013,9 +1051,6 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 #pragma mark - 标签切换
 
 - (void)switchTo:(UITableView *)to hide:(NSArray *)others bar:(UIView *)bar {
-    /* 切页先把 Folia 收起来，否则它会一直盖在新页面上 */
-    [FoliaPlayer hide];
-
     // 已经停在这一页了 —— 直接返回，别再播一次过渡动画
     if (!to.hidden && to.alpha > 0.9) return;
 
@@ -1104,35 +1139,31 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 }
 
 - (void)showMusicTab {
-    /* 音乐页整体交给 Folia 2.1.5（内嵌 www，WKWebView 跑 file://）：
-       原生播放器卡片和曲库表都不再显示，避免两套 UI 抢同一块区域 */
-    [self setHeader:@"音乐播放器" sub:@"Folia 2.1.5 · 动态歌词"];
+    lllLog(@"进入音乐页 card=%@ btn=%@", _playerCard, _playerCloudBtn);
+    [self setHeader:@"音乐播放器" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
+    [self reloadMusicData];
+    [self startProgressTimer];
 
-    self.playerCard.hidden = YES;
-    if (self.playerHeight) self.playerHeight.constant = 0;
+    /* 【修复】进入音乐页必须展开播放器卡片并显示控制栏。
+       此前从未恢复：卡片 hidden=YES 且 playerHeight 恒为 0 → 音乐页全空 */
+    self.playerCard.hidden = NO;
+    if (self.playerHeight) self.playerHeight.constant = 310;
+    // 2.4: 只留 playerCard 一套播放 UI
     self.musicControlBar.hidden = YES;
     self.musicControlBar.alpha = 0;
 
     [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
-    [self lllAttachFolia];
-}
 
-- (void)lllAttachFolia {
-    UIView *host = self.contentContainerView;
-    if (!host) return;
-
-    self.musict.hidden = YES;
-    self.playerCard.hidden = YES;
-    if (self.playerHeight) self.playerHeight.constant = 0;
-
-    __weak typeof(self) w = self;
-    [FoliaPlayer loadInto:host completion:^(BOOL ok) {
-        __strong typeof(w) s = w;
-        if (!s) return;
-        if (!ok) {
-            ShowToast(@"Folia 解包失败，进度见 Documents/LLL_runtime.log", 2.4, YES, YES);
-        }
-    }];
+    // 切换之后再记一次，这次是真实布局状态
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        lllLog(@"音乐页布局 card=%@ hidden=%d h=%.0f | table=%@ hidden=%d h=%.0f | 曲目=%lu",
+               NSStringFromCGRect(self.playerCard.frame), self.playerCard.hidden,
+               self.playerHeight ? self.playerHeight.constant : -1,
+               NSStringFromCGRect(self.musict.frame), self.musict.hidden,
+               self.musict.bounds.size.height,
+               (unsigned long)self.musicNames.count);
+    });
 }
 
 - (void)showSettingsTab {
@@ -1327,6 +1358,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 
     self.audioPlayer.volume = v;
     self.videoMusicPlayer.volume = v;
+    self.cloudPlayer.volume = v;
     self.bgPlayer.volume = v * 0.55f;
 
     if (_volumeSlider && fabsf(_volumeSlider.value - v) > 0.001f) _volumeSlider.value = v;
@@ -1363,6 +1395,9 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     } else if (self.videoMusicPlayer.currentItem) {
         total = CMTimeGetSeconds(self.videoMusicPlayer.currentItem.duration);
         cur = CMTimeGetSeconds(self.videoMusicPlayer.currentTime);
+    } else if (self.cloudPlayer.currentItem) {
+        total = CMTimeGetSeconds(self.cloudPlayer.currentItem.duration);
+        cur = CMTimeGetSeconds(self.cloudPlayer.currentTime);
     }
     if (total > 0.01 && !isnan(total)) {
         if (_progressSlider && !_progressSlider.isTracking)
