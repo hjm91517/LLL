@@ -186,11 +186,11 @@ static void (^gTapHandler)(void) = nil;
     [gHost addSubview:gPill];
 
     UITapGestureRecognizer *ptap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onTap:)];
-    ptap.delegate = gHost;   /* 让滑条/按钮触摸不被手势拦截（见 LLLIslandHostView） */
+    ptap.delegate = (id<UIGestureRecognizerDelegate>)gHost;   /* 让滑条/按钮触摸不被手势拦截（见 LLLIslandHostView） */
     [gPill addGestureRecognizer:ptap];
     UILongPressGestureRecognizer *lp =
         [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(onLongPress:)];
-    lp.delegate = gHost;
+    lp.delegate = (id<UIGestureRecognizerDelegate>)gHost;
     lp.minimumPressDuration = 0.6;
     [gPill addGestureRecognizer:lp];
 
@@ -461,13 +461,13 @@ static NSString *LLLClock(NSTimeInterval t) {
     gTimeLg.text = LLLClock(e);
     CGFloat ratio = (d > 0.5) ? (CGFloat)(e / d) : 0;
     ratio = MAX(0, MIN(1, ratio));
-    if (!gSeeking && fabsf(gSeekSld.value - ratio) > 0.001f) gSeekSld.value = ratio;
+    if (!gSeeking && fabs(gSeekSld.value - (double)ratio) > 0.001) gSeekSld.value = ratio;
 
     /* 独立音量：来自 LLL.volume（applyVolume 只作用于音乐播放器，不动系统音量） */
     {
         float v = [[NSUserDefaults standardUserDefaults] floatForKey:@"LLL.volume"];
         if (v <= 0.001f) v = 0.8f;
-        if (fabsf(gVolSld.value - v) > 0.001f) gVolSld.value = v;
+        if (fabs(gVolSld.value - (double)v) > 0.001) gVolSld.value = v;
     }
 
     /* 网易云登录状态实时同步到岛上按钮 */
