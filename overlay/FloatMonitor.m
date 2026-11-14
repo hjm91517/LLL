@@ -162,6 +162,7 @@ static UIViewController *LLLTopVC(void) {
 @interface FloatingBallView () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 - (void)longPress:(UILongPressGestureRecognizer *)g;
 - (void)reloadIcon;
+- (void)presentIconPicker;
 @end
 
 @implementation FloatingBallView {
@@ -219,6 +220,10 @@ static UIViewController *LLLTopVC(void) {
 
 - (void)longPress:(UILongPressGestureRecognizer *)g {
     if (g.state != UIGestureRecognizerStateBegan) return;
+    [self presentIconPicker];
+}
+
+- (void)presentIconPicker {
     UIViewController *top = LLLTopVC();
     if (!top || top.isBeingDismissed) return;
     if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) return;
@@ -619,3 +624,17 @@ __attribute__((constructor)) static void MonitorInit() {
         }
     });
 }
+
+void LLLPresentFloatIconPicker(void) {
+    if (g_ballView) [g_ballView presentIconPicker];
+}
+
+@interface MainViewController (LLLIconSetting)
+- (void)lllChangeFloatIcon;
+@end
+
+@implementation MainViewController (LLLIconSetting)
+- (void)lllChangeFloatIcon {
+    LLLPresentFloatIconPicker();
+}
+@end

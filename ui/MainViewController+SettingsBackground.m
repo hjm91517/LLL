@@ -77,6 +77,17 @@
                                         action:@selector(toggleCacheCleaner:) outSwitch:NULL];
     [stack addArrangedSubview:cacheCleanerRow];
 
+    UIButton *iconBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    iconBtn.translatesAutoresizingMaskIntoConstraints = NO;
+    iconBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
+    iconBtn.layer.cornerRadius = 12;
+    [iconBtn setTitle:@"更换悬浮窗图标（相册选图）" forState:UIControlStateNormal];
+    [iconBtn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    iconBtn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    [iconBtn addTarget:self action:@selector(lllChangeFloatIcon) forControlEvents:UIControlEventTouchUpInside];
+    [stack addArrangedSubview:iconBtn];
+    [iconBtn.heightAnchor constraintEqualToConstant:44].active = YES;
+
     self.modeSegment = [[UISegmentedControl alloc] initWithItems:@[@"固定", @"定时"]];
     self.modeSegment.selectedSegmentIndex = self.bgMode;
     self.modeSegment.translatesAutoresizingMaskIntoConstraints = NO;
