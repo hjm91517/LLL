@@ -51,7 +51,7 @@ void FoliaEnsureReady(void (^done)(BOOL, NSString *, NSString *)) {
         }
 
         /* 内嵌数据 → 临时 zip（LLLZip 按路径读，图省事不改造它） */
-        NSData *blob = [NSData dataWithBytes:flia_folia_zip_data length:flia_folia_zip_size];
+        NSData *blob = [NSData dataWithBytes:fliaFoliaZip_data length:fliaFoliaZip_size];
         if (blob.length < 1024) {
             FoliaReply(done, NO, nil, @"内嵌 Folia 数据为空");
             return;
@@ -67,12 +67,12 @@ void FoliaEnsureReady(void (^done)(BOOL, NSString *, NSString *)) {
         [fm removeItemAtPath:www error:nil];
         [fm createDirectoryAtPath:www withIntermediateDirectories:YES attributes:nil error:nil];
 
-        NSError *err = nil;
+        NSString *err = nil;
         NSArray<NSString *> *files = [LLLZip extract:tmp to:www error:&err];
         [fm removeItemAtPath:tmp error:nil];
 
         if (!files.count || !FoliaWebRoot()) {
-            FoliaReply(done, NO, nil, err.localizedDescription ?: @"解包失败");
+            FoliaReply(done, NO, nil, err.length ? err : @"解包失败");
             return;
         }
         [kFoliaBundleVersion writeToFile:marker atomically:YES encoding:NSUTF8StringEncoding error:nil];
