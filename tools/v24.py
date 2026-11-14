@@ -1,30 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""v3.1：设置页不可点 —— 清理残留遮罩 + 面板提到最前"""
+"""v3.2：每个非音乐页进入时都收起播放卡片（不再依赖 switchTo 单点）"""
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-log = []
-
+log=[]
 def rd(p): return open(os.path.join(ROOT,p),encoding='utf-8').read()
 def wr(p,s): open(os.path.join(ROOT,p),'w',encoding='utf-8').write(s)
-def rep(p,old,new,tag):
+def rep(p,old,new,t):
     s=rd(p)
-    if old not in s: log.append('SKIP %s (%s)'%(p,tag)); return
-    wr(p,s.replace(old,new,1)); log.append('patch %s (%s)'%(p,tag))
+    if old not in s: log.append('SKIP %s'%t); return
+    wr(p,s.replace(old,new,1)); log.append('patch %s'%t)
 
-rep('ui/MainViewController.m',
-    '- (void)showSettingsTab {',
-    '''- (void)showSettingsTab {
-    /* v3.1: 清掉任何残留的全屏遮罩，并把自己的面板提到最前，否则设置页看着在、其实点不到 */
-    for (UIWindow *w in UIApplication.sharedApplication.windows) {
-        for (UIView *v in [w.rootViewController.view.subviews copy]) {
-            if (v.tag == 99131 || v.tag == 99141) [v removeFromSuperview];
-        }
-    }
-    [self.view bringSubviewToFront:self.settingsView];
-    self.settingsView.userInteractionEnabled = YES;''', 'settings front')
+p='ui/MainViewController.m'
+hide = '''    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+'''
+for name in ('showSrcTab','showQueueTab','showPluginTab','showPluginQueueTab'):
+    rep(p, '- (void)%s {' % name, '- (void)%s {\n%s' % (name, hide), name)
 
-rep('core/PluginInfo.h', '#define kPluginVersion @"3.0"', '#define kPluginVersion @"3.1"', 'v30')
-rep('core/PluginInfo.h', '#define kPluginVersion @"2.9"', '#define kPluginVersion @"3.1"', 'v29')
-
+rep('core/PluginInfo.h', '#define kPluginVersion @"3.1"', '#define kPluginVersion @"3.2"', 'v31')
+rep('core/PluginInfo.h', '#define kPluginVersion @"3.0"', '#define kPluginVersion @"3.2"', 'v30')
+rep('core/PluginInfo.h', '#define kPluginVersion @"2.9"', '#define kPluginVersion @"3.2"', 'v29')
 for l in log: print(l)
