@@ -6,19 +6,6 @@ on:
     tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
-    inputs:
-      runner:
-        description: 'Runner 标签（官方：macos-15 / macos-26 / macos-latest）'
-        default: 'macos-15'
-      archs:
-        description: '目标架构'
-        default: 'arm64 arm64e'
-      deployment_target:
-        description: 'iOS 最低版本'
-        default: '14.0'
-      package_scheme:
-        description: 'rootful / rootless / roothide'
-        default: 'rootful'
 
 permissions:
   contents: write
@@ -30,39 +17,28 @@ env:
 
 jobs:
   build:
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    runs-on: macos-15
     timeout-minutes: 40
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: false
           fetch-depth: 0
 
-      - name: Print runner info
+      - name: Apply live patch
         run: |
-          echo "runner OS  : $RUNNER_OS"
-          echo "runner arch: $RUNNER_ARCH"
-          sw_vers
+          if [ -f tools/v24.py ]; then python3 tools/v24.py; fi
 
-      - name: Select Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+      - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
-
-      - name: Resolve config
-        run: |
-          echo "ARCHS=${{ inputs.archs || 'arm64 arm64e' }}"        >> $GITHUB_ENV
-          echo "IOS_DT=${{ inputs.deployment_target || '14.0' }}"   >> $GITHUB_ENV
-          echo "PKG_SCHEME=${{ inputs.package_scheme || 'rootful' }}" >> $GITHUB_ENV
 
       - name: Install host deps
         run: |
           brew update >/dev/null 2>&1 || true
           brew install ldid xz dpkg || brew upgrade ldid xz dpkg
 
-      - name: Cache Theos + SDKs
+      - name: Cache Theos
         id: theos-cache
         uses: actions/cache@v4
         with:
@@ -78,62 +54,52 @@ jobs:
           curl -fsSL https://github.com/theos/sdks/archive/refs/heads/master.zip -o /tmp/sdks.zip
           unzip -q /tmp/sdks.zip -d /tmp
           cp -R /tmp/sdks-master/iPhoneOS16.5.sdk "$THEOS/sdks/"
-          test -f "$THEOS/makefiles/common.mk"
 
-      - name: Build (Theos)
+      - name: Build
         run: |
           set -euo pipefail
-          EXTRA=""
-          case "$PKG_SCHEME" in
-            rootless) EXTRA="THEOS_PACKAGE_SCHEME=rootless" ;;
-            roothide) EXTRA="THEOS_PACKAGE_SCHEME=roothide" ;;
-          esac
           make clean || true
-          make all \
-            FINALPACKAGE=1 DEBUG=0 \
-            ARCHS="$ARCHS" \
-            TARGET="iphone:clang:latest:$IOS_DT" \
-            $EXTRA
+          make all FINALPACKAGE=1 DEBUG=0 ARCHS="arm64 arm64e" \
+            TARGET="iphone:clang:latest:14.0"
 
       - name: Collect & sign
         run: |
           set -uo pipefail
-          rm -rf dist
-          mkdir -p dist
-
+          rm -rf dist && mkdir -p dist
           ENT=""
           if [ -f ".github/entitlements.plist" ]; then ENT=".github/entitlements.plist"; fi
-
           best=$(ls -1 .theos/obj/bbhj_online.dylib .theos/obj/*/bbhj_online.dylib 2>/dev/null | head -1)
-          if [ -z "$best" ]; then
-            echo "!! 没找到 bbhj_online.dylib"
-            exit 1
-          fi
-          cp -f "$best" "dist/bbhj_online.dylib"
-
+          [ -z "$best" ] && { echo "!! 没找到 dylib"; exit 1; }
+          cp -f "$best" dist/bbhj_online.dylib
           for f in dist/*.dylib; do
-            [ -e "$f" ] || continue
             lipo -info "$f" || true
             if [ -n "$ENT" ]; then ldid -S"$ENT" "$f"; else ldid -S "$f"; fi
           done
-
           VER=$(sed -n 's/.*kPluginVersion @"\([^"]*\)".*/\1/p' core/PluginInfo.h | head -1)
           [ -z "$VER" ] && VER=0.0
           cp -f dist/bbhj_online.dylib "dist/bbhj-online-$VER.dylib"
-          echo "版本: $VER"
-
           ( cd dist && zip -qry "LLL-$VER-dylib.zip" . )
           ls -la dist
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Commit patched sources
+        if: success()
+        run: |
+          git config user.name  "lll-ci"
+          git config user.email "lll-ci@users.noreply.github.com"
+          git add -A -- . ':(exclude)dist' ':(exclude)artifacts'
+          if git diff --cached --quiet; then echo "源码无变化"; else
+            git commit -m "ci: materialize v2.4 [skip ci]"
+            git push origin "HEAD:${{ github.ref_name }}" || true
+          fi
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: bbhj-online-2.0-universal
+          name: bbhj-online-2.4-universal
           path: dist/
           if-no-files-found: error
           retention-days: 90
 
-      - name: Publish dylib into repo
+      - name: Publish artifact copy
         if: success()
         run: |
           set -uo pipefail
@@ -141,37 +107,18 @@ jobs:
           cp -f dist/bbhj_online.dylib artifacts/bbhj_online.dylib
           cp -f dist/bbhj-online-*.dylib artifacts/ 2>/dev/null || true
           cp -f dist/LLL-*-dylib.zip artifacts/ 2>/dev/null || true
-          git config user.name  "lll-ci"
-          git config user.email "lll-ci@users.noreply.github.com"
           git add -f artifacts
-          if git diff --cached --quiet; then
-            echo "产物无变化"
-          else
-            git commit -m "artifacts: bbhj-online ${{ github.sha }} [skip ci]"
+          if git diff --cached --quiet; then echo "产物无变化"; else
+            git commit -m "artifacts: ${{ github.sha }} [skip ci]"
             git push origin "HEAD:${{ github.ref_name }}" || true
           fi
-          ls -la artifacts
 
-      - name: Release on tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/**
-          generate_release_notes: true
-
-      - name: Report build log to PR
+      - name: Report log
         if: always() && github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -uo pipefail
-          gh run view "${{ github.run_id }}" --repo "${{ github.repository }}" --log-failed > /tmp/fail.log 2>&1 || \
-            gh run view "${{ github.run_id }}" --repo "${{ github.repository }}" --log > /tmp/fail.log 2>&1 || true
-          {
-            echo '```'
-            grep -nE "error:|fatal error|undefined symbol|No such file" /tmp/fail.log | head -40 || true
-            echo '--- tail ---'
-            tail -25 /tmp/fail.log || true
-            echo '```'
-          } > /tmp/body.md
-          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file /tmp/body.md || true
+          gh run view "${{ github.run_id }}" --repo "${{ github.repository }}" --log-failed > /tmp/f.log 2>&1 || \
+            gh run view "${{ github.run_id }}" --repo "${{ github.repository }}" --log > /tmp/f.log 2>&1 || true
+          { echo '```'; grep -nE "error:|fatal error|undefined symbol" /tmp/f.log | head -30; echo '---'; tail -20 /tmp/f.log; echo '```'; } > /tmp/b.md
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file /tmp/b.md || true
