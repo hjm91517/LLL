@@ -170,12 +170,19 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [self.view addSubview:_cardView];
 
     CGFloat margin = 20;
+    /* 【占全屏 / 刘海遮挡修复】卡片上下留出安全区：以前顶部只留 20pt，
+       全面屏上标题和 tab 直接压在状态栏/灵动岛下面，看着像"被占满屏"还点不到 */
+    NSLayoutConstraint *ct = [_cardView.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:margin];
+    NSLayoutConstraint *cb = [_cardView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-margin];
     [NSLayoutConstraint activateConstraints:@[
         [_cardView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:margin],
         [_cardView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-margin],
-        [_cardView.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:margin],
-        [_cardView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-margin]
+        ct,
+        cb
     ]];
+    objc_setAssociatedObject(self, "lllCardTop", ct, OBJC_ASSOCIATION_RETAIN);
+    objc_setAssociatedObject(self, "lllCardBottom", cb, OBJC_ASSOCIATION_RETAIN);
+    [self lllApplySafeAreaPadding];
 
     _bgImageView = [[UIImageView alloc] init];
     _bgImageView.contentMode = UIViewContentModeScaleAspectFill;
@@ -846,6 +853,31 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [self stopVideoBackground];
 }
 
+#pragma mark - 安全区
+
+/* 卡片上下边距跟着安全区走：window.safeAreaInsets 在"挂到游戏根视图"时可能为 0，
+   那就退到自己 view 的 safeAreaInsets；两个都是 0 时按全面屏兜底 34/18。 */
+- (void)lllApplySafeAreaPadding {
+    NSLayoutConstraint *ct = objc_getAssociatedObject(self, "lllCardTop");
+    NSLayoutConstraint *cb = objc_getAssociatedObject(self, "lllCardBottom");
+    if (!ct || !cb) return;
+
+    UIEdgeInsets si = UIEdgeInsetsZero;
+    if (@available(iOS 11.0, *)) {
+        si = self.view.window.safeAreaInsets;
+        if (si.top <= 0.5 && si.bottom <= 0.5) si = self.view.safeAreaInsets;
+    }
+    CGFloat top = 20 + MAX(si.top, (CGFloat)34);
+    CGFloat bottom = 20 + MAX(si.bottom, (CGFloat)18);
+    if (fabs(ct.constant - top) > 0.5) ct.constant = top;
+    if (fabs(cb.constant + bottom) > 0.5) cb.constant = -bottom;
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self lllApplySafeAreaPadding];
+}
+
 #pragma mark - 按钮工厂
 
 - (void)bgTapped:(UITapGestureRecognizer *)gr {
@@ -1076,18 +1108,12 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     self.playerCard.hidden = YES;
     if (self.playerHeight) self.playerHeight.constant = 0;
 
-    self.playerCard.hidden = YES;
-    if (self.playerHeight) self.playerHeight.constant = 0;
-
     [self setHeader:@"材质包" sub:[NSString stringWithFormat:@"目标 · %@", targetPathDisplayName()]];
     [self reloadSrcData];
     [self switchTo:self.st hide:@[self.qt, self.pt, self.pqt, self.musict] bar:nil];
 }
 
 - (void)showQueueTab {
-    self.playerCard.hidden = YES;
-    if (self.playerHeight) self.playerHeight.constant = 0;
-
     self.playerCard.hidden = YES;
     if (self.playerHeight) self.playerHeight.constant = 0;
 
@@ -1099,18 +1125,12 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     self.playerCard.hidden = YES;
     if (self.playerHeight) self.playerHeight.constant = 0;
 
-    self.playerCard.hidden = YES;
-    if (self.playerHeight) self.playerHeight.constant = 0;
-
     [self setHeader:@"MCP 插件" sub:[NSString stringWithFormat:@"%lu 项可用", (unsigned long)self.pln.count]];
     [self reloadPluginData];
     [self switchTo:self.pt hide:@[self.st, self.qt, self.pqt, self.musict] bar:nil];
 }
 
 - (void)showPluginQueueTab {
-    self.playerCard.hidden = YES;
-    if (self.playerHeight) self.playerHeight.constant = 0;
-
     self.playerCard.hidden = YES;
     if (self.playerHeight) self.playerHeight.constant = 0;
 

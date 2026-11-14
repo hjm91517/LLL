@@ -40,3 +40,16 @@ AES 用 CommonCrypto 的 `CCCrypt(kCCAlgorithmAES, kCCOptionPKCS7Padding)`。
 ## 状态归属
 所有播放都写进 `LLLNowPlaying`（歌名/歌手/封面/时长/进度/播放态），
 灵动岛只读它；岛上的播放/切歌/拖动条通过 `LLLNPCommand` 回到播放器。
+
+## 4. 外部播放器（v3.3）
+
+登录和取流留在插件里，播放交给别的 App —— 典型就是 Folii：
+```
+folii://play?url=<urlencode(直链)>
+folii://open?url=<...>          // 部分版本只认这个
+folii://x-callback-url/play?url=<...>
+music://<直链>                  // 系统音乐
+qqmusic://qq.com/ui/openUrl?url=<...>
+```
+依次尝试，`openURL` 回调 false 就换下一个；全失败弹提示并回退内置 `AVPlayer`。
+直链先做 HEAD 探测（`200/206` + `audio/*` 且长度 > 32KB），403 页面直接丢弃。
