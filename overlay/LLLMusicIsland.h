@@ -33,10 +33,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// 重新读一次状态并刷新
 + (void)refresh;
 
-/// 4.0：网易云登录入口（展开态第二行按钮）加到岛上，点击调 openLoginBlock
+/// 4.0：网易云登录入口（展开态第二行按钮），点击调 handler
 + (void)setCloudLoginHandler:(nullable void (^)(void))handler;
 /// 登录态变化后刷新按钮文案
 + (void)refreshCloudButton;
+/// 播放模式键文案刷新
++ (void)refreshModeButton;
 
 @end
 
