@@ -1,5 +1,5 @@
 //
-//  ui/LLLMusicController.m  — 4.0 定稿
+//  ui/LLLMusicController.m  — 4.0
 //
 
 #import "LLLMusicController.h"
@@ -89,6 +89,24 @@ static NSString * const kSourceKey = @"LLL.musicSource";
         [[LLLPlayerCore shared] setLocalQueueNames:_localNames paths:_localPaths startAt:row];
     }
     [LLLMusicIsland refresh];
+}
+
+- (void)setCloudQueueDirectly:(NSArray<NSDictionary *> *)songs {
+    [_cloudSongs removeAllObjects];
+    for (NSDictionary *s in songs) {
+        if ([s isKindOfClass:NSDictionary.class]) [_cloudSongs addObject:s];
+    }
+    [[LLLPlayerCore shared] setCloudQueueSilently:_cloudSongs];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"LLLMusicDataDidChange" object:nil];
+}
+
+- (void)playCloudRowDirectly:(NSInteger)row {
+    if (row < 0 || row >= (NSInteger)_cloudSongs.count) return;
+    _kind = LLLMusicSourceKindCloud;
+    [NSUserDefaults.standardUserDefaults setInteger:_kind forKey:kSourceKey];
+    [[LLLPlayerCore shared] setCloudQueue:_cloudSongs startAt:row];
+    [LLLMusicIsland refresh];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"LLLMusicDataDidChange" object:nil];
 }
 
 - (void)togglePlayPause { [[LLLPlayerCore shared] togglePlayPause]; }
