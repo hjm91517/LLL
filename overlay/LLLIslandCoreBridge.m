@@ -1,11 +1,13 @@
 //
-//  LLLIslandCoreBridge.m
+//  overlay/LLLIslandCoreBridge.m  — 4.0 定稿
 //
 
+#import "LLLIslandCoreBridge.h"
 #import "LLLIslandCoreBridge.h"
 #import "LLLPlayerCore.h"
 #import "LLLNowPlaying.h"
 #import "LLLMusicIsland.h"
+#import "LLLMusicIsland4.h"
 #import "BaseComponents.h"
 
 @implementation LLLIslandCoreBridge
@@ -20,6 +22,9 @@
 - (void)install {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        /* 岛的事件方法换成 4.0 版本 */
+        [LLLMusicIsland lll4_install];
+
         /* LLLNowPlaying 的命令回调统一转给内核。
            以前这里分叉：cloudPlayer 在就动 cloudPlayer，不在就 togglePlayPause，
            于是本地/网易云两套状态互相打脸 —— 现在只有一个真相源。 */
@@ -41,6 +46,7 @@
                      object:nil
                       queue:NSOperationQueue.mainQueue
                  usingBlock:^(NSNotification *note) {
+            [LLLMusicIsland lll4_ensureCloudArtwork];
             [LLLMusicIsland refresh];
         }];
     });
