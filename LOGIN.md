@@ -5,10 +5,10 @@
 
 ## 1. 扫码（主路径，明文接口就够）
 ```
-GET  /api/login/qrcode/unikey?type=1
+GET  /api/login/qrcode/unikey?type=3   // PC 客户端码；失败退 type=1
      → {"code":200,"unikey":"a2c1…"}
 二维码内容  https://music.163.com/login?codekey=<unikey>
-GET  /api/login/qrcode/client/login?key=<unikey>&type=1
+GET  /api/login/qrcode/client/login?key=<unikey>&type=3
      800 待扫码 / 801 已扫码待确认 / 802 已取消 / 803 成功
 ```
 2s 轮询一次，120 次（4 分钟）超时，可随时取消。803 之后 `MUSIC_U` 已经在 cookie 里。

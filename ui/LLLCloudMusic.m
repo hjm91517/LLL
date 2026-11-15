@@ -17,6 +17,9 @@
 #import <CommonCrypto/CommonCryptor.h>
 #import <Security/Security.h>
 
+/* 扫码类型：3 = PC 客户端码（默认），1 = 网页/手机码（兜底） */
+static NSInteger gQRType = 3;
+
 static NSString * const kBase = @"https://music.163.com";
 static NSString * const kUA   = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
                                 @"AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
@@ -378,38 +381,50 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     _doneBlock = [done copy];
 
     __weak typeof(self) w = self;
-    [self getJSON:@"/api/login/qrcode/unikey" params:@{ @"type" : @"1" } done:^(id json, NSError *err) {
-        __strong typeof(w) s = w;
-        if (!s) return;
+    /* 先按 PC 客户端（type=3）要 key，拿不到再退回网页/手机（type=1） */
+    __block void (^kick)(NSInteger);
+    kick = ^(NSInteger type) {
+        [LLLCloudMusic.shared getJSON:@"/api/login/qrcode/unikey"
+                               params:@{ @"type" : [NSString stringWithFormat:@"%ld", (long)type] }
+                                 done:^(id json, NSError *err) {
+            __strong typeof(w) s = w;
+            if (!s) return;
 
-        NSString *key = nil;
-        if ([json isKindOfClass:NSDictionary.class]) {
-            key = json[@"unikey"];
-            if (!key) key = json[@"key"];
-        }
-        if (!key.length) {
-            if (s.doneBlock) s.doneBlock(NO, @"拿不到 unikey，检查网络或接口变化");
-            return;
-        }
+            NSString *key = nil;
+            if ([json isKindOfClass:NSDictionary.class]) {
+                key = json[@"unikey"];
+                if (!key) key = json[@"key"];
+            }
+            if (!key.length) {
+                if (type == 3) { kick(1); return; }
+                if (s.doneBlock) s.doneBlock(NO, @"拿不到 unikey，检查网络或接口变化");
+                return;
+            }
 
-        s.uniKey = key;
-        s.pollCount = 0;
+            gQRType = type;
+            s.uniKey = key;
+            s.pollCount = 0;
 
-        NSString *content = [NSString stringWithFormat:@"%@/login?codekey=%@", kBase, key];
-        UIImage *qr = LLLQRImage(content, 220);
-        if (s.progressBlock) s.progressBlock(qr, @"打开网易云 App → 右上角扫一扫");
+            NSString *content = [NSString stringWithFormat:@"%@/login?codekey=%@", kBase, key];
+            UIImage *qr = LLLQRImage(content, 220);
+            if (s.progressBlock) {
+                s.progressBlock(qr, (type == 3) ? @"网易云 App 扫一扫（登录电脑版）"
+                                                : @"网易云 App 扫一扫（网页版）");
+            }
 
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(w) s2 = w;
-            if (!s2) return;
-            s2.pollTimer = [NSTimer timerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
-                __strong typeof(w) s3 = w;
-                if (!s3) { [t invalidate]; return; }
-                [s3 pollOnce];
-            }];
-            [[NSRunLoop mainRunLoop] addTimer:s2.pollTimer forMode:NSRunLoopCommonModes];
-        });
-    }];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                __strong typeof(w) s2 = w;
+                if (!s2) return;
+                s2.pollTimer = [NSTimer timerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
+                    __strong typeof(w) s3 = w;
+                    if (!s3) { [t invalidate]; return; }
+                    [s3 pollOnce];
+                }];
+                [[NSRunLoop mainRunLoop] addTimer:s2.pollTimer forMode:NSRunLoopCommonModes];
+            });
+        }];
+    };
+    kick(3);
 }
 
 - (void)pollOnce {
@@ -424,7 +439,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
 
     __weak typeof(self) w = self;
     [self getJSON:@"/api/login/qrcode/client/login"
-           params:@{ @"key" : _uniKey, @"type" : @"1" }
+           params:@{ @"key" : _uniKey, @"type" : [NSString stringWithFormat:@"%ld", (long)gQRType] }
              done:^(id json, NSError *err) {
         __strong typeof(w) s = w;
         if (!s) return;
