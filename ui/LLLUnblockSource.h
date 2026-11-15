@@ -1,13 +1,10 @@
 //
 //  ui/LLLUnblockSource.h
-//  会员曲解锁通道：调用 UnblockNeteaseMusic 兼容的 /match 接口取第三方音源。
+//  会员曲换源：内置酷我通道（无需任何服务器），可选再叠加一个解锁服务。
 //
-//  说明：网易的会员鉴权在服务端，客户端无法自行放行。
-//  这条通道的工作方式是「换源」——按歌曲 ID 去第三方（酷我/咪咕等）找同名音频，
-//  返回一个可直接播放的地址。所以需要一个可用的解锁服务：
-//    · 自建 UnblockNeteaseMusic（推荐，稳定）
-//    · 或填一个别人维护的公开实例
-//  地址在「网易云面板 → 解锁音源」里填，存 NSUserDefaults: LLL.unblockBase
+//  实测（2026-11）：网易外链对会员曲只回 302/空体，明文 player/url 直接 url=null。
+//  酷我 search + antiserver convert_url 能返回真实 mp3（206 audio/mpeg，ID3 头正常），
+//  所以默认就走它。
 //
 
 #import <Foundation/Foundation.h>
@@ -18,17 +15,18 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)shared;
 
-/// 用户配置的解锁服务根地址，例如 http://192.168.1.10:8080
+/// 可选的 UnblockNeteaseMusic 服务根地址（留空则只用内置酷我通道）
 @property (nonatomic, copy, readonly, nullable) NSString *baseURL;
 - (void)setBaseURL:(nullable NSString *)url;
 - (BOOL)isConfigured;
 
-/// 按歌曲 ID 换源，回调主线程
+/// 会员曲换源：优先外部解锁服务（若配置），否则/失败后走内置酷我
 - (void)resolveSongID:(NSNumber *)songID
+                 name:(nullable NSString *)name
+               artist:(nullable NSString *)artist
              duration:(NSTimeInterval)duration
                  done:(void (^)(NSURL * _Nullable url, NSString * _Nullable err))done;
 
-/// 给 UI 用的一句话说明
 + (NSString *)helpText;
 
 @end
