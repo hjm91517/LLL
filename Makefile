@@ -1,6 +1,5 @@
 #
 # bbhj online - 资源注入器
-# Theos 工程定义
 #
 
 ifeq ($(THEOS),)
@@ -27,15 +26,21 @@ bbhj_online_FILES = \
     core/LLLZip.m \
     overlay/FloatMonitor.m \
     overlay/LLLNowPlaying.m \
+    overlay/LLLIslandCoreBridge.m \
     overlay/LLLMusicIsland.m \
     ui/MainViewController.m \
     ui/MainViewController+SettingsBackground.m \
     ui/MainViewController+Features.m \
+    ui/MainViewController+Music4.m \
+    ui/MainViewController+Legacy4Shim.m \
+    ui/LLLMusicTab4.m \
+    ui/LLLMusicController.m \
     ui/LLLUiKit.m \
     ui/LLLCloudRequest.m \
     ui/LLLCloudVIP.m \
     ui/LLLCloudMusic.m \
     ui/LLLCloudLogin.m \
+    ui/LLLWebLogin.m \
     ui/LLLLaunchCard.m \
     Entry.m
 
