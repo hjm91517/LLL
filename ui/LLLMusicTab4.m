@@ -1,19 +1,19 @@
 //
 //  ui/LLLMusicTab4.m
-//  4.0 音乐页表格数据源（分类覆盖，统一从 LLLMusicController 取数）。
+//  4.0 音乐页表格数据源（分类扩展，统一从 LLLMusicController 取数）。
 //
-//  老实现里 numberOfRows 和 cellForRow 分别读 _musicSrcSeg.selectedSegmentIndex
-//  和自己缓存的数组；分段控件被改、数组没跟上时就会越界 → 页面错乱/跳转。
-//  现在两个方法都只有一个取数入口，越界不可能发生。
+//  老实现里 numberOfRows 和 cellForRow 分别读 _musicSrcSeg 和自己缓存的数组；
+//  分段控件被改、数组没跟上就会越界 → 页面错乱/跳转。
+//  现在两个方法只有一个取数入口，越界不可能发生。
 //
 
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>            /* objc_setAssociatedObject */
 #import "MainViewController.h"
 #import "MainViewController_Private.h"
 #import "MainViewController+Music4.h"
 #import "LLLMusicController.h"
 #import "LLLCloudMusic.h"
-#import "LLLCloudVIP.h"
 #import "BaseComponents.h"
 #import "AppTheme.h"
 
@@ -55,9 +55,11 @@
                                    : kAccentGreen;
             icon.contentMode = UIViewContentModeCenter;
         }
+
         [btn setImage:[UIImage systemImageNamed:@"play.circle.fill"] forState:UIControlStateNormal];
         [btn removeTarget:self action:NULL forControlEvents:UIControlEventTouchUpInside];
-        [btn addTarget:self action:@selector(lll4_musicCellPlay:) forControlEvents:UIControlEventTouchUpInside];
+        [btn addTarget:self action:@selector(lll4_musicCellPlay:)
+      forControlEvents:UIControlEventTouchUpInside];
         objc_setAssociatedObject(btn, "idx", @(row), OBJC_ASSOCIATION_RETAIN);
     }
 }
