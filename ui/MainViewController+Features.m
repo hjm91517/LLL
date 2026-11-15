@@ -7,6 +7,7 @@
 #import "LLLCloudMusic.h"
 #import "LLLNowPlaying.h"
 #import "LLLCloudLogin.h"
+#import "LLLBrandArt.h"
 #import "EffectInjector.h"
 #import "LLLMusicIsland.h"
 #import <objc/runtime.h>
@@ -14,14 +15,111 @@
 
 static void (^gLLLCloseCloudCard)(void) = nil;
 
+#pragma mark - 随机播放的「袋子」
+
+/* 类别不能加 ivar，洗牌袋挂关联对象上。
+   以前用 arc4random 直接抽，同一首歌能连着放三次，这才叫「随机」。 */
+static NSMutableArray<NSNumber *> *LLLShuffleBag(MainViewController *vc) {
+    NSMutableArray *bag = objc_getAssociatedObject(vc, "lll.shuffleBag");
+    if (!bag) {
+        bag = [NSMutableArray array];
+        objc_setAssociatedObject(vc, "lll.shuffleBag", bag, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return bag;
+}
+
+static NSString *LLLPlayModeTitle(LLLPlayMode m) {
+    switch (m) {
+        case LLLPlayModeRepeatAll: return @"列表";
+        case LLLPlayModeRepeatOne: return @"单曲";
+        case LLLPlayModeShuffle:   return @"随机";
+        default:                   return @"顺序";
+    }
+}
+
+static NSString *LLLPlayModeSymbol(LLLPlayMode m) {
+    switch (m) {
+        case LLLPlayModeRepeatAll: return @"repeat";
+        case LLLPlayModeRepeatOne: return @"repeat.1";
+        case LLLPlayModeShuffle:   return @"shuffle";
+        default:                   return @"arrow.right.to.line";
+    }
+}
+
 @implementation MainViewController (Features)
+
+#pragma mark - 播放模式
+
+- (void)lllSetPlayMode:(LLLPlayMode)mode {
+    if (mode < LLLPlayModeOrder || mode > LLLPlayModeShuffle) mode = LLLPlayModeOrder;
+    self.playMode = mode;
+    // 旧字段跟着走，别再各写各的
+    self.loopModeSingle = (mode == LLLPlayModeRepeatOne);
+    self.shuffleMode    = (mode == LLLPlayModeShuffle);
+    [[NSUserDefaults standardUserDefaults] setInteger:(NSInteger)mode forKey:@"LLL.playMode"];
+    if (mode == LLLPlayModeShuffle) [LLLShuffleBag(self) removeAllObjects];
+    [self updateMusicUI];
+}
+
+- (NSInteger)lllAdvanceIndex:(NSInteger)delta
+                        from:(NSInteger)cur
+                       count:(NSInteger)count
+                        auto:(BOOL)isAuto {
+    if (count <= 0) return -1;
+    if (cur < 0 || cur >= count) cur = (delta > 0) ? -1 : 0;
+
+    /* 随机：从一个「没放过的」袋子里抽，抽完才重新装袋 */
+    if (self.playMode == LLLPlayModeShuffle) {
+        NSMutableArray<NSNumber *> *bag = LLLShuffleBag(self);
+        for (NSInteger i = (NSInteger)bag.count - 1; i >= 0; i--) {
+            if (bag[(NSUInteger)i].integerValue < 0 || bag[(NSUInteger)i].integerValue >= count) {
+                [bag removeObjectAtIndex:(NSUInteger)i];
+            }
+        }
+        if (bag.count == 0) {
+            for (NSInteger i = 0; i < count; i++) {
+                if (i != cur) [bag addObject:@(i)];
+            }
+            if (bag.count == 0) [bag addObject:@(MAX(0, cur))];
+            for (NSInteger i = (NSInteger)bag.count - 1; i > 0; i--) {
+                [bag exchangeObjectAtIndex:(NSUInteger)i
+                          withObjectAtIndex:arc4random_uniform((uint32_t)(i + 1))];
+            }
+        }
+        NSInteger pick = bag.firstObject.integerValue;
+        [bag removeObjectAtIndex:0];
+        return pick;
+    }
+
+    if (delta > 0) {
+        NSInteger nxt = cur + 1;
+        if (nxt < count) return nxt;
+        // 到队尾
+        if (self.playMode == LLLPlayModeRepeatAll) return 0;
+        if (self.playMode == LLLPlayModeRepeatOne) return isAuto ? cur : 0;
+        return isAuto ? -1 : 0;   // 顺序：自动放完就停，手点回第一首
+    }
+
+    if (self.playMode == LLLPlayModeRepeatOne) return isAuto ? cur : ((cur - 1 + count) % count);
+    NSInteger prev = cur - 1;
+    if (prev < 0) prev = (self.playMode == LLLPlayModeRepeatAll) ? (count - 1) : 0;
+    return prev;
+}
 
 #pragma mark - 音乐
 
+- (BOOL)lllCloudActive {
+    return (self.cloudPlayer != nil);
+}
+
+- (BOOL)lllIsPlaying {
+    return self.isPlaying;
+}
+
 - (void)playMusicAtIndex:(NSInteger)idx {
-    if (idx < 0 || idx >= self.musicPaths.count) return;
+    if (idx < 0 || idx >= (NSInteger)self.musicPaths.count) return;
     self.currentMusicIndex = idx;
-    NSString *path = self.musicPaths[idx];
+    NSString *path = self.musicPaths[(NSUInteger)idx];
     NSString *ext = path.pathExtension.lowercaseString;
     [self stopMusic];
     if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"]) {
@@ -29,7 +127,10 @@ static void (^gLLLCloseCloudCard)(void) = nil;
         self.videoMusicPlayer.rate = self.doubleSpeed ? 2.0 : 1.0;
         [self.videoMusicPlayer play];
         self.isPlaying = YES;
-        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(videoMusicDidFinish:) name:AVPlayerItemDidPlayToEndTimeNotification object:self.videoMusicPlayer.currentItem];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(videoMusicDidFinish:)
+                                                     name:AVPlayerItemDidPlayToEndTimeNotification
+                                                   object:self.videoMusicPlayer.currentItem];
     } else {
         NSError *err;
         self.audioPlayer = [[AVAudioPlayer alloc] initWithContentsOfURL:[NSURL fileURLWithPath:path] error:&err];
@@ -53,16 +154,17 @@ static void (^gLLLCloseCloudCard)(void) = nil;
     }
 
     /* 同步到灵动岛：标题/播放态/时长都走 LLLNowPlaying，岛只读它 */
-    NSString *showTitle = self.musicNames.count > (NSUInteger)idx ? self.musicNames[(NSUInteger)idx] : path.lastPathComponent;
+    NSString *showTitle = (self.musicNames.count > (NSUInteger)idx)
+        ? self.musicNames[(NSUInteger)idx] : path.lastPathComponent;
     [LLLMusicIsland attachVideo:self.videoMusicPlayer];
     [[LLLNowPlaying shared] beginTrack:showTitle
                                 artist:(self.videoMusicPlayer ? @"本地视频" : @"本地音乐")
-                               artwork:nil
+                               artwork:LLLCloudBrandImage()
                               duration:(self.audioPlayer ? self.audioPlayer.duration : 0)
                                elapsed:0];
 
     [self updateMusicUI];
-    ShowToast([NSString stringWithFormat:@"正在播放: %@", self.musicNames[idx]], 2, YES, NO);
+    ShowToast([NSString stringWithFormat:@"正在播放: %@", showTitle], 2, YES, NO);
 }
 
 - (void)stopMusic {
@@ -71,7 +173,9 @@ static void (^gLLLCloseCloudCard)(void) = nil;
     [self.audioPlayer stop];
     self.audioPlayer = nil;
     if (self.videoMusicPlayer) {
-        [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:self.videoMusicPlayer.currentItem];
+        [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                        name:AVPlayerItemDidPlayToEndTimeNotification
+                                                      object:self.videoMusicPlayer.currentItem];
         [self.videoMusicPlayer pause];
         self.videoMusicPlayer = nil;
     }
@@ -80,104 +184,145 @@ static void (^gLLLCloseCloudCard)(void) = nil;
 }
 
 - (void)nextMusic {
-    if (self.musicPaths.count == 0) return;
-    if (self.shuffleMode) {
-        NSInteger next = arc4random_uniform((uint32_t)self.musicPaths.count);
-        while (next == self.currentMusicIndex && self.musicPaths.count > 1) next = arc4random_uniform((uint32_t)self.musicPaths.count);
-        [self playMusicAtIndex:next];
-    } else {
-        NSInteger next = self.currentMusicIndex + 1;
-        if (next >= self.musicPaths.count) {
-            if (self.loopModeSingle) [self playMusicAtIndex:self.currentMusicIndex];
-            else next = 0;
-        }
-        [self playMusicAtIndex:next];
+    // 网易云在播就走云端队列，别去动本地音乐
+    if ([self lllCloudActive]) {
+        [self cloudAdvance:1 auto:NO];
+        return;
     }
+    if (self.musicPaths.count == 0) {
+        if (self.musicSrcSeg.selectedSegmentIndex == 1) [self cloudTogglePlayPause];
+        return;
+    }
+    NSInteger cur = (self.currentMusicIndex < 0) ? 0 : self.currentMusicIndex;
+    NSInteger nxt = [self lllAdvanceIndex:1 from:cur count:(NSInteger)self.musicPaths.count auto:NO];
+    if (nxt < 0) nxt = 0;
+    [self playMusicAtIndex:nxt];
 }
 
 - (void)prevMusic {
-    if (self.musicPaths.count == 0) return;
-    NSInteger prev = self.currentMusicIndex - 1;
-    if (prev < 0) prev = self.musicPaths.count - 1;
-    [self playMusicAtIndex:prev];
+    if ([self lllCloudActive]) {
+        [self cloudAdvance:-1 auto:NO];
+        return;
+    }
+    if (self.musicPaths.count == 0) {
+        if (self.musicSrcSeg.selectedSegmentIndex == 1) [self cloudTogglePlayPause];
+        return;
+    }
+    NSInteger cur = (self.currentMusicIndex < 0) ? 0 : self.currentMusicIndex;
+    NSInteger prv = [self lllAdvanceIndex:-1 from:cur count:(NSInteger)self.musicPaths.count auto:NO];
+    if (prv < 0) prv = 0;
+    [self playMusicAtIndex:prv];
 }
 
 - (void)togglePlayPause {
-    BOOL hasPlayer = (self.audioPlayer || self.videoMusicPlayer);
-    if (!hasPlayer) {
-        if (self.musicPaths.count > 0) [self playMusicAtIndex:self.currentMusicIndex < 0 ? 0 : self.currentMusicIndex];
-    } else {
-        if (self.isPlaying) {
-            if (self.audioPlayer) [self.audioPlayer pause];
-            if (self.videoMusicPlayer) [self.videoMusicPlayer pause];
-            self.isPlaying = NO;
-        } else {
-            if (self.audioPlayer) [self.audioPlayer play];
-            if (self.videoMusicPlayer) [self.videoMusicPlayer play];
-            self.isPlaying = YES;
-        }
-        [self updateMusicUI];
+    /* 【播放键不管用修复】原来只看 audioPlayer/videoMusicPlayer，
+       网易云在播时两个都是 nil → 点播放反而去放本地第 0 首，看着就是「没反应」 */
+    if ([self lllCloudActive]) {
+        [self cloudTogglePlayPause];
+        return;
     }
+
+    BOOL hasPlayer = (self.audioPlayer != nil || self.videoMusicPlayer != nil);
+    if (!hasPlayer) {
+        if (self.musicSrcSeg.selectedSegmentIndex == 1) {
+            [self cloudTogglePlayPause];
+            return;
+        }
+        if (self.musicPaths.count > 0) {
+            [self playMusicAtIndex:self.currentMusicIndex < 0 ? 0 : self.currentMusicIndex];
+        }
+        return;
+    }
+
+    if (self.isPlaying) {
+        if (self.audioPlayer) [self.audioPlayer pause];
+        if (self.videoMusicPlayer) [self.videoMusicPlayer pause];
+        self.isPlaying = NO;
+    } else {
+        if (self.audioPlayer) [self.audioPlayer play];
+        if (self.videoMusicPlayer) [self.videoMusicPlayer play];
+        self.isPlaying = YES;
+    }
+    [self updateMusicUI];
 }
 
 - (void)toggleSpeed {
     self.doubleSpeed = !self.doubleSpeed;
     if (self.audioPlayer) self.audioPlayer.rate = self.doubleSpeed ? 2.0 : 1.0;
     if (self.videoMusicPlayer) self.videoMusicPlayer.rate = self.doubleSpeed ? 2.0 : 1.0;
+    if (self.cloudPlayer) self.cloudPlayer.rate = self.doubleSpeed ? 2.0 : 1.0;
     [self updateMusicUI];
 }
 
 - (void)switchLoopMode {
-    if (!self.loopModeSingle && !self.shuffleMode) {
-        self.loopModeSingle = YES; self.shuffleMode = NO;
-    } else if (self.loopModeSingle) {
-        self.loopModeSingle = NO; self.shuffleMode = YES;
-    } else {
-        self.loopModeSingle = NO; self.shuffleMode = NO;
+    /* 顺序 → 列表 → 单曲 → 随机 → 顺序 */
+    LLLPlayMode nxt;
+    switch (self.playMode) {
+        case LLLPlayModeOrder:     nxt = LLLPlayModeRepeatAll; break;
+        case LLLPlayModeRepeatAll: nxt = LLLPlayModeRepeatOne; break;
+        case LLLPlayModeRepeatOne: nxt = LLLPlayModeShuffle;   break;
+        default:                   nxt = LLLPlayModeOrder;     break;
     }
-    [self updateMusicUI];
+    [self lllSetPlayMode:nxt];
+    ShowToast([NSString stringWithFormat:@"播放模式：%@", LLLPlayModeTitle(nxt)], 1.2, YES, NO);
 }
 
 - (void)updateMusicUI {
     [self applyVolume];
 
-    if (self.nowPlayingLabel) {
-        if (self.currentMusicIndex >= 0 &&
-            self.currentMusicIndex < (NSInteger)self.musicNames.count) {
-            self.nowPlayingLabel.text = self.musicNames[(NSUInteger)self.currentMusicIndex];
-        } else {
-            self.nowPlayingLabel.text = self.isPlaying ? @"播放中" : @"未在播放";
-        }
+    BOOL cloud = [self lllCloudActive];
+    BOOL playing = self.isPlaying;
+    LLLNowPlaying *np = [LLLNowPlaying shared];
+
+    /* 标题/歌手：云端读中央状态，本地读当前索引 */
+    NSString *title = nil;
+    NSString *artist = nil;
+    if (cloud) {
+        title = np.title;
+        artist = np.artist;
+    } else if (self.currentMusicIndex >= 0 &&
+               self.currentMusicIndex < (NSInteger)self.musicNames.count) {
+        title = self.musicNames[(NSUInteger)self.currentMusicIndex];
+        artist = self.videoMusicPlayer ? @"本地视频" : @"本地音乐";
     }
-    if (self.playerTitle) {
-        if (self.currentMusicIndex >= 0 &&
-            self.currentMusicIndex < (NSInteger)self.musicNames.count) {
-            self.playerTitle.text = self.musicNames[(NSUInteger)self.currentMusicIndex];
-        } else {
-            self.playerTitle.text = self.isPlaying ? @"播放中" : @"未在播放";
-        }
-    }
+    if (!title.length) title = playing ? @"播放中" : @"未在播放";
+
+    if (self.nowPlayingLabel) self.nowPlayingLabel.text = title;
+    if (self.playerTitle) self.playerTitle.text = title;
+    if (self.playerArtist && artist.length) self.playerArtist.text = artist;
+
     if (self.playerPlayBtn) {
         if (@available(iOS 13.0, *)) {
             UIImageSymbolConfiguration *cfg =
                 [UIImageSymbolConfiguration configurationWithPointSize:24 weight:UIImageSymbolWeightSemibold];
-            [self.playerPlayBtn setImage:[UIImage systemImageNamed:(self.isPlaying ? @"pause.fill" : @"play.fill")
-                                                     withConfiguration:cfg]
+            [self.playerPlayBtn setImage:[UIImage systemImageNamed:(playing ? @"pause.fill" : @"play.fill")
+                                                withConfiguration:cfg]
                                 forState:UIControlStateNormal];
         }
     }
     if (self.playerModeBtn) {
         if (@available(iOS 13.0, *)) {
-            NSString *ic = self.loopModeSingle ? @"repeat.1" : (self.shuffleMode ? @"shuffle" : @"repeat");
             UIImageSymbolConfiguration *cfg =
                 [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
-            [self.playerModeBtn setImage:[UIImage systemImageNamed:ic withConfiguration:cfg]
+            [self.playerModeBtn setImage:[UIImage systemImageNamed:LLLPlayModeSymbol(self.playMode)
+                                                withConfiguration:cfg]
                                 forState:UIControlStateNormal];
         }
     }
 
-    if (self.playerCover) {
-        if (self.isPlaying) {
+    /* 卡片右上角的网易云键：没登录就写「登录」，登录了显昵称 */
+    if (self.playerCloudBtn) {
+        LLLCloudMusic *cm = [LLLCloudMusic shared];
+        NSString *t = cm.loggedIn ? (cm.nickname.length ? cm.nickname : @"云") : @"登录";
+        [self.playerCloudBtn setTitle:t forState:UIControlStateNormal];
+        self.playerCloudBtn.backgroundColor = cm.loggedIn
+            ? [UIColor colorWithWhite:1.0 alpha:0.10]
+            : [LLLAccentColor() colorWithAlphaComponent:0.85];
+    }
+
+    /* 封面旋转：云端不动（封面是专辑图，转了很怪） */
+    if (self.playerCover && !cloud) {
+        if (playing) {
             if (![self.playerCover.layer animationForKey:@"lll.spin"]) {
                 CABasicAnimation *spin = [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
                 spin.fromValue = @0;
@@ -192,39 +337,52 @@ static void (^gLLLCloseCloudCard)(void) = nil;
         }
     }
 
-    // 顶部灵动岛：本地播放也走同一套状态
-    if (self.isPlaying) {
-        NSString *t = (self.currentMusicIndex >= 0 &&
-                       self.currentMusicIndex < (NSInteger)self.musicNames.count)
-                      ? self.musicNames[(NSUInteger)self.currentMusicIndex]
-                      : (self.playerTitle.text ?: @"播放中");
-        LLLNowPlaying *np = [LLLNowPlaying shared];
-        double dur = self.audioPlayer ? self.audioPlayer.duration : 0;
-        double cur = self.audioPlayer ? self.audioPlayer.currentTime : 0;
-        if (![np.title isEqualToString:t]) [np beginTrack:t artist:@"本地音乐" artwork:nil duration:dur elapsed:cur];
-        else { [np updateElapsed:cur duration:dur]; [np setPlaying:YES]; }
-        [LLLMusicIsland updateTitle:t playing:YES];
-    } else {
-        [[LLLNowPlaying shared] setPlaying:NO];
-        [LLLMusicIsland updateTitle:nil playing:NO];
+    /* 灵动岛：云端的状态由 playCloudSong 自己写，这里再写一遍会把它的标题冲掉 */
+    if (!cloud) {
+        if (playing) {
+            LLLNowPlaying *np2 = [LLLNowPlaying shared];
+            double dur = self.audioPlayer ? self.audioPlayer.duration : 0;
+            double cur = self.audioPlayer ? self.audioPlayer.currentTime : 0;
+            if (![np2.title isEqualToString:title]) {
+                [np2 beginTrack:title artist:@"本地音乐" artwork:LLLCloudBrandImage() duration:dur elapsed:cur];
+            } else {
+                [np2 updateElapsed:cur duration:dur];
+                [np2 setPlaying:YES];
+            }
+            [LLLMusicIsland updateTitle:title playing:YES];
+        } else {
+            [[LLLNowPlaying shared] setPlaying:NO];
+            [LLLMusicIsland updateTitle:nil playing:NO];
+        }
     }
 
-    if (self.isPlaying) {
+    if (playing) {
         [self startProgressTimer];
     } else {
         [self stopProgressTimer];
         if (self.progressSlider) self.progressSlider.value = 0;
     }
     if (@available(iOS 13.0, *)) {
-        [self.playPauseBtn setImage:[UIImage systemImageNamed:self.isPlaying ? @"pause.fill" : @"play.fill"] forState:UIControlStateNormal];
+        [self.playPauseBtn setImage:[UIImage systemImageNamed:playing ? @"pause.fill" : @"play.fill"]
+                           forState:UIControlStateNormal];
     }
     [self.speedBtn setTitle:self.doubleSpeed ? @"2x" : @"1x" forState:UIControlStateNormal];
-    [self.modeBtn setTitle:self.loopModeSingle ? @"单曲" : (self.shuffleMode ? @"随机" : @"顺序") forState:UIControlStateNormal];
+    [self.modeBtn setTitle:LLLPlayModeTitle(self.playMode) forState:UIControlStateNormal];
 }
 
 - (void)musicCellPlay:(UIButton *)sender {
     NSNumber *idx = objc_getAssociatedObject(sender, "idx");
-    if (idx) [self playMusicAtIndex:idx.integerValue];
+    if (!idx) return;
+    NSInteger i = idx.integerValue;
+    /* 【播放键串台修复】列表行的播放键以前无脑调 playMusicAtIndex:，
+       在「网易云」列表里点会把本地第 i 首放出来 */
+    if (self.musicSrcSeg.selectedSegmentIndex == 1) {
+        if (i >= 0 && i < (NSInteger)self.cloudSongs.count) {
+            [self playCloudSong:self.cloudSongs[(NSUInteger)i]];
+        }
+        return;
+    }
+    [self playMusicAtIndex:i];
 }
 
 - (void)upEmptyMusic {
@@ -253,22 +411,39 @@ static void (^gLLLCloseCloudCard)(void) = nil;
 
 - (void)audioPlayerDidFinishPlaying:(AVAudioPlayer *)player successfully:(BOOL)flag {
     if (!flag) return;
-    if (self.loopModeSingle) {
-        [self playMusicAtIndex:self.currentMusicIndex];
-    } else {
-        if (self.shuffleMode) [self nextMusic];
-        else if (self.currentMusicIndex + 1 < self.musicPaths.count) [self playMusicAtIndex:self.currentMusicIndex + 1];
-        else [self stopMusic];
-    }
+    [self lllAutoAdvanceLocal];
 }
 
 - (void)videoMusicDidFinish:(NSNotification *)n {
-    if (self.loopModeSingle) {
-        [self.videoMusicPlayer seekToTime:kCMTimeZero];
-        [self.videoMusicPlayer play];
-    } else {
-        [self nextMusic];
+    [self lllAutoAdvanceLocal];
+}
+
+/// 本地一首放完：单曲循环原地重来，其余按 playMode 推进
+- (void)lllAutoAdvanceLocal {
+    if (self.playMode == LLLPlayModeRepeatOne) {
+        if (self.audioPlayer) {
+            self.audioPlayer.currentTime = 0;
+            [self.audioPlayer play];
+        }
+        if (self.videoMusicPlayer) {
+            [self.videoMusicPlayer seekToTime:kCMTimeZero];
+            [self.videoMusicPlayer play];
+        }
+        self.isPlaying = YES;
+        [self updateMusicUI];
+        return;
     }
+
+    NSInteger cur = (self.currentMusicIndex < 0) ? 0 : self.currentMusicIndex;
+    NSInteger nxt = [self lllAdvanceIndex:1 from:cur count:(NSInteger)self.musicPaths.count auto:YES];
+    if (nxt < 0) {
+        // 顺序模式放到底：停下来，不再鬼打墙回第一首
+        [self stopMusic];
+        self.isPlaying = NO;
+        [self updateMusicUI];
+        return;
+    }
+    [self playMusicAtIndex:nxt];
 }
 
 #pragma mark - 网易云
