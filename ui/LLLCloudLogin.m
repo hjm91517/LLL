@@ -14,6 +14,7 @@
 #import "LLLMusicController.h"
 #import "LLLNowPlaying.h"
 #import "LLLMusicIsland.h"
+#import "LLLWebLogin.h"
 #import "LLLUiKit.h"
 #import "BaseComponents.h"
 #import <AVFoundation/AVFoundation.h>
@@ -36,7 +37,6 @@ static UITextView  *gCookieView = nil;
 static UILabel     *gLoginHint = nil;
 static WKWebView   *gWebLogin = nil;
 
-/* 常驻宿主：浮窗面板创建时登记，灵动岛入口直接用这一个。 */
 static __weak MainViewController *gCloudHostRef = nil;
 static MainViewController *gCloudHostOwned = nil;
 
@@ -56,7 +56,6 @@ static MainViewController *gCloudHostOwned = nil;
 #pragma mark - 入口
 
 - (void)dismissCloudLoginCard {
-    /* 关卡片 = 放弃这次登录：不停轮询的话，几分钟后还会突然弹"登录成功" */
     [[LLLCloudMusic shared] cancelLogin];
     if (gCloseLoginCard) { gCloseLoginCard(); gCloseLoginCard = nil; }
 }
@@ -84,7 +83,8 @@ static MainViewController *gCloudHostOwned = nil;
             else if (idx == 3) { [s presentLoginChooser]; }
             else {
                 [[LLLCloudMusic shared] logout];
-                [LLLMusicIsland refreshCloudButton];
+                [LLLMusicIsland refresh];
+                [s lll4_refreshLoginButton];
                 ShowToast(@"已退出登录", 1.5, YES, NO);
             }
         });
@@ -95,14 +95,17 @@ static MainViewController *gCloudHostOwned = nil;
 }
 
 - (void)presentLoginChooser {
+    __weak typeof(self) w = self;
     LLLShowSheet(@"网易云登录", @"网页登录最稳（站点自己过风控）；不想登录可以直接用免登录听",
                  @[ @"网页登录（推荐）", @"扫码登录", @"手机验证码", @"粘贴 Cookie", @"免登录听" ], NO,
                  ^(NSInteger idx) {
-        if (idx == 0) [self cloudLoginWeb];
-        else if (idx == 1) [self cloudLoginQR];
-        else if (idx == 2) [self cloudLoginPhone];
-        else if (idx == 3) [self cloudLoginCookie];
-        else [self lll4_openGuestMusic];
+        __strong typeof(w) s = w;
+        if (!s) return;
+        if (idx == 0) [s cloudLoginWeb];
+        else if (idx == 1) [s cloudLoginQR];
+        else if (idx == 2) [s cloudLoginPhone];
+        else if (idx == 3) [s cloudLoginCookie];
+        else [s lll4_openGuestMusic];
     });
 }
 
@@ -117,7 +120,7 @@ static MainViewController *gCloudHostOwned = nil;
         NSString *shown = msg.length ? msg : (ok ? @"登录成功" : @"登录失败");
         ShowToast(shown, 2.6, YES, !ok);
         PlayHaptic(ok);
-        [LLLMusicIsland refreshCloudButton];
+        [LLLMusicIsland refresh];
         [self lll4_refreshLoginButton];
         if (ok) {
             [[LLLMusicController shared] reloadCloudLiked];
@@ -169,24 +172,24 @@ static MainViewController *gCloudHostOwned = nil;
 
     LLLShowCustomCard(320, 520, ^(UIView *card, void (^close)(void)) {
         gCloseLoginCard = [close copy];
-        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
-        card.frame = CGRectMake(0, 0, w, 392);
+        CGFloat cw = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
+        card.frame = CGRectMake(0, 0, cw, 392);
 
-        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, w - 32, 24)];
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, cw - 32, 24)];
         t.text = @"扫码登录";
         t.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
         t.textColor = UIColor.whiteColor;
         t.textAlignment = NSTextAlignmentCenter;
         [card addSubview:t];
 
-        qrView = [[UIImageView alloc] initWithFrame:CGRectMake((w - 200) / 2, 56, 200, 200)];
+        qrView = [[UIImageView alloc] initWithFrame:CGRectMake((cw - 200) / 2, 56, 200, 200)];
         qrView.backgroundColor = UIColor.whiteColor;
         qrView.layer.cornerRadius = 10;
         qrView.clipsToBounds = YES;
         qrView.contentMode = UIViewContentModeScaleAspectFit;
         [card addSubview:qrView];
 
-        hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 268, w - 32, 18)];
+        hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 268, cw - 32, 18)];
         hint.text = @"正在获取二维码…";
         hint.font = [UIFont systemFontOfSize:12];
         hint.textColor = [UIColor colorWithWhite:0.7 alpha:1];
@@ -194,7 +197,7 @@ static MainViewController *gCloudHostOwned = nil;
         [card addSubview:hint];
 
         UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
-        cancel.frame = CGRectMake(14, 300, w - 28, 44);
+        cancel.frame = CGRectMake(14, 300, cw - 28, 44);
         cancel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
         cancel.layer.cornerRadius = 12;
         [cancel setTitle:@"取消" forState:UIControlStateNormal];
@@ -223,17 +226,17 @@ static MainViewController *gCloudHostOwned = nil;
 - (void)cloudLoginPhone {
     LLLShowCustomCard(320, 460, ^(UIView *card, void (^close)(void)) {
         gCloseLoginCard = [close copy];
-        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
-        card.frame = CGRectMake(0, 0, w, 348);
+        CGFloat cw = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
+        card.frame = CGRectMake(0, 0, cw, 348);
 
-        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, w - 32, 24)];
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, cw - 32, 24)];
         t.text = @"手机验证码登录";
         t.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
         t.textColor = UIColor.whiteColor;
         t.textAlignment = NSTextAlignmentCenter;
         [card addSubview:t];
 
-        gPhoneField = [[UITextField alloc] initWithFrame:CGRectMake(18, 56, w - 36, 42)];
+        gPhoneField = [[UITextField alloc] initWithFrame:CGRectMake(18, 56, cw - 36, 42)];
         gPhoneField.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
         gPhoneField.layer.cornerRadius = 10;
         gPhoneField.textColor = UIColor.whiteColor;
@@ -245,7 +248,7 @@ static MainViewController *gCloudHostOwned = nil;
         gPhoneField.leftViewMode = UITextFieldViewModeAlways;
         [card addSubview:gPhoneField];
 
-        gCodeField = [[UITextField alloc] initWithFrame:CGRectMake(18, 104, w - 36 - 108, 42)];
+        gCodeField = [[UITextField alloc] initWithFrame:CGRectMake(18, 104, cw - 36 - 108, 42)];
         gCodeField.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
         gCodeField.layer.cornerRadius = 10;
         gCodeField.textColor = UIColor.whiteColor;
@@ -258,7 +261,7 @@ static MainViewController *gCloudHostOwned = nil;
         [card addSubview:gCodeField];
 
         gSendBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        gSendBtn.frame = CGRectMake(w - 18 - 100, 104, 100, 42);
+        gSendBtn.frame = CGRectMake(cw - 18 - 100, 104, 100, 42);
         gSendBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.14];
         gSendBtn.layer.cornerRadius = 10;
         [gSendBtn setTitle:@"发送验证码" forState:UIControlStateNormal];
@@ -268,7 +271,7 @@ static MainViewController *gCloudHostOwned = nil;
         [card addSubview:gSendBtn];
 
         UIButton *go = [UIButton buttonWithType:UIButtonTypeSystem];
-        go.frame = CGRectMake(18, 158, w - 36, 44);
+        go.frame = CGRectMake(18, 158, cw - 36, 44);
         go.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
         go.layer.cornerRadius = 12;
         [go setTitle:@"登录" forState:UIControlStateNormal];
@@ -277,7 +280,7 @@ static MainViewController *gCloudHostOwned = nil;
         [go addTarget:self action:@selector(doPhoneLogin) forControlEvents:UIControlEventTouchUpInside];
         [card addSubview:go];
 
-        gLoginHint = [[UILabel alloc] initWithFrame:CGRectMake(18, 208, w - 36, 32)];
+        gLoginHint = [[UILabel alloc] initWithFrame:CGRectMake(18, 208, cw - 36, 32)];
         gLoginHint.text = @"网易已关闭密码登录，只能收短信验证码";
         gLoginHint.numberOfLines = 2;
         gLoginHint.font = [UIFont systemFontOfSize:11];
@@ -286,7 +289,7 @@ static MainViewController *gCloudHostOwned = nil;
         [card addSubview:gLoginHint];
 
         UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
-        cancel.frame = CGRectMake(18, 252, w - 36, 40);
+        cancel.frame = CGRectMake(18, 252, cw - 36, 40);
         cancel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
         cancel.layer.cornerRadius = 12;
         [cancel setTitle:@"取消" forState:UIControlStateNormal];
@@ -347,17 +350,17 @@ static MainViewController *gCloudHostOwned = nil;
 - (void)cloudLoginCookie {
     LLLShowCustomCard(320, 420, ^(UIView *card, void (^close)(void)) {
         gCloseLoginCard = [close copy];
-        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
-        card.frame = CGRectMake(0, 0, w, 316);
+        CGFloat cw = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
+        card.frame = CGRectMake(0, 0, cw, 316);
 
-        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, w - 32, 24)];
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, cw - 32, 24)];
         t.text = @"粘贴 Cookie";
         t.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
         t.textColor = UIColor.whiteColor;
         t.textAlignment = NSTextAlignmentCenter;
         [card addSubview:t];
 
-        gCookieView = [[UITextView alloc] initWithFrame:CGRectMake(18, 54, w - 36, 110)];
+        gCookieView = [[UITextView alloc] initWithFrame:CGRectMake(18, 54, cw - 36, 110)];
         gCookieView.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
         gCookieView.layer.cornerRadius = 10;
         gCookieView.textColor = UIColor.whiteColor;
@@ -366,7 +369,7 @@ static MainViewController *gCloudHostOwned = nil;
         [card addSubview:gCookieView];
 
         UIButton *go = [UIButton buttonWithType:UIButtonTypeSystem];
-        go.frame = CGRectMake(18, 176, w - 36, 44);
+        go.frame = CGRectMake(18, 176, cw - 36, 44);
         go.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
         go.layer.cornerRadius = 12;
         [go setTitle:@"登录" forState:UIControlStateNormal];
@@ -375,7 +378,7 @@ static MainViewController *gCloudHostOwned = nil;
         [go addTarget:self action:@selector(doCookieLogin) forControlEvents:UIControlEventTouchUpInside];
         [card addSubview:go];
 
-        gLoginHint = [[UILabel alloc] initWithFrame:CGRectMake(18, 226, w - 36, 18)];
+        gLoginHint = [[UILabel alloc] initWithFrame:CGRectMake(18, 226, cw - 36, 18)];
         gLoginHint.text = @"整段复制，包含 MUSIC_U";
         gLoginHint.font = [UIFont systemFontOfSize:11];
         gLoginHint.textColor = [UIColor colorWithWhite:0.5 alpha:1];
@@ -383,7 +386,7 @@ static MainViewController *gCloudHostOwned = nil;
         [card addSubview:gLoginHint];
 
         UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
-        cancel.frame = CGRectMake(18, 252, w - 36, 40);
+        cancel.frame = CGRectMake(18, 252, cw - 36, 40);
         cancel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
         cancel.layer.cornerRadius = 12;
         [cancel setTitle:@"取消" forState:UIControlStateNormal];
