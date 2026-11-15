@@ -1,0 +1,37 @@
+//
+//  overlay/LLLMusicIsland4.h
+//  灵动岛 4.0 扩展（分类实现，不碰主实现）
+//
+
+#import "LLLMusicIsland.h"
+
+NS_ASSUME_NONNULL_BEGIN
+
+@interface LLLMusicIsland (Island4)
+
+/// 由 LLLIslandCoreBridge install 时调用一次（幂等）
++ (void)lll4_install;
+
+/// 网易云曲目缺封面时兜底拉一次
++ (void)lll4_ensureCloudArtwork;
+
+/// 岛上「登录 / 网易云」键的回调
++ (void)lll4_setCloudTapHandler:(nullable void (^)(void))handler;
+
+/// 把「登录 / 模式」两颗键挂到控制行；返回是否成功
++ (BOOL)lll4_attachButtonsToPill:(nullable UIView *)pill;
+
+/// 文案刷新
++ (void)lll4_refreshModeButton;
++ (void)lll4_refreshLoginButton;
+
+@end
+
+/// 等价别名，给外部调用方用（语义更清楚）
+@interface LLLMusicIsland (Island4Alias)
++ (void)setCloudLoginHandler:(nullable void (^)(void))handler;
++ (void)refreshCloudButton;
++ (void)refreshModeButton;
+@end
+
+NS_ASSUME_NONNULL_END

@@ -50,5 +50,8 @@ typedef NS_ENUM(NSInteger, BGSwitchMode) {
 - (void)reloadMusicData;
 - (void)stopTimer;
 - (void)startTimer;
+- (void)lllApplySafeAreaPadding;
+- (void)musicSourceChanged:(UISegmentedControl *)seg;
+- (void)reloadMusicTab;
 
 @end

@@ -12,17 +12,20 @@ static void (^gCmdHandler)(LLLNPCommand, double) = nil;
 @property (nonatomic, copy) NSString *title;
 @property (nonatomic, copy) NSString *artist;
 @property (nonatomic, strong) UIImage *artwork;
+@property (nonatomic, copy) NSString *artworkURL;
 @property (nonatomic, assign) NSTimeInterval duration;
 @property (nonatomic, assign) NSTimeInterval elapsedBase;
 @property (nonatomic, assign) NSTimeInterval stamp;
 @property (nonatomic, assign) BOOL playing;
 @property (nonatomic, assign) BOOL hasTrack;
+@property (nonatomic, assign) BOOL cloudSource;
 @end
 
 @implementation LLLNowPlaying
 
-@synthesize title = _title, artist = _artist, artwork = _artwork, duration = _duration,
-            elapsedBase = _elapsedBase, stamp = _stamp, playing = _playing, hasTrack = _hasTrack;
+@synthesize title = _title, artist = _artist, artwork = _artwork, artworkURL = _artworkURL,
+            duration = _duration, elapsedBase = _elapsedBase, stamp = _stamp,
+            playing = _playing, hasTrack = _hasTrack, cloudSource = _cloudSource;
 
 + (instancetype)shared {
     static LLLNowPlaying *m;
@@ -53,14 +56,27 @@ static void (^gCmdHandler)(LLLNPCommand, double) = nil;
            artwork:(UIImage *)artwork
           duration:(NSTimeInterval)duration
            elapsed:(NSTimeInterval)elapsed {
+    [self beginTrack:title artist:artist artwork:artwork artworkURL:nil
+            duration:duration elapsed:elapsed cloud:NO];
+}
+
+- (void)beginTrack:(NSString *)title
+            artist:(NSString *)artist
+           artwork:(UIImage *)artwork
+        artworkURL:(NSString *)artworkURL
+          duration:(NSTimeInterval)duration
+           elapsed:(NSTimeInterval)elapsed
+             cloud:(BOOL)cloud {
     _title = [title copy];
     _artist = [artist copy];
     _artwork = artwork;
+    _artworkURL = [artworkURL copy];
     _duration = MAX(0, duration);
     _elapsedBase = MAX(0, elapsed);
     _stamp = CFAbsoluteTimeGetCurrent();
     _playing = YES;
     _hasTrack = (_title.length > 0);
+    _cloudSource = cloud;
     [self notify];
 }
 
@@ -85,14 +101,23 @@ static void (^gCmdHandler)(LLLNPCommand, double) = nil;
     [self notify];
 }
 
+- (void)updateArtwork:(UIImage *)artwork url:(NSString *)url {
+    if (!artwork) return;
+    _artwork = artwork;
+    if (url.length) _artworkURL = [url copy];
+    [self notify];
+}
+
 - (void)stop {
     _title = nil;
     _artist = nil;
     _artwork = nil;
+    _artworkURL = nil;
     _duration = 0;
     _elapsedBase = 0;
     _playing = NO;
     _hasTrack = NO;
+    _cloudSource = NO;
     [self notify];
 }
 

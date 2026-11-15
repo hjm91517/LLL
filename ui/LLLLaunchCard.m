@@ -12,6 +12,16 @@
 
 static UIWindow *gLaunchWin = nil;
 
+/* 普通 UIWindow 透明全屏常驻会把触摸全吃掉（登录/设置都点不了） */
+@interface LLLCardWin : UIWindow @end
+@implementation LLLCardWin
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *h = [super hitTest:point withEvent:event];
+    if (h == self || (h && h == self.rootViewController.view)) return nil;
+    return h;
+}
+@end
+
 static UIWindow *LLLCardWindow(void) {
     if (gLaunchWin) return gLaunchWin;
 
@@ -397,6 +407,7 @@ void LLLProgressHide(void) {
                              completion:^(BOOL f) {
                 [card removeFromSuperview];
                 [dim removeFromSuperview];
+                gLaunchWin.hidden = YES;
                 gLaunchWin.hidden = YES;   /* 【交互修复】内容清空后必须藏窗，否则吞掉全部触摸 */
             }];
         } @catch (__unused NSException *e) { }

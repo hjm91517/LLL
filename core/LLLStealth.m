@@ -71,6 +71,43 @@ static const LLLInterpose LLLInterposeImageName
         (const void *)&_dyld_get_image_name
     };
 
+#pragma mark - 裸 stat / access 隐藏
+
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
+static BOOL LLLHideCPath(const char *p) {
+    if (!p || !strstr(p, ".dylib")) return NO;
+    return strstr(p, "bbhj") || strstr(p, "lll_") || strstr(p, "LLL_") ||
+           strstr(p, "MaterialPackManager");
+}
+
+static int LLLFakeStat(const char *path, struct stat *buf) {
+    if (LLLHideCPath(path)) { errno = ENOENT; return -1; }
+    return fstatat(AT_FDCWD, path, buf, 0);
+}
+
+static int LLLFakeLstat(const char *path, struct stat *buf) {
+    if (LLLHideCPath(path)) { errno = ENOENT; return -1; }
+    return fstatat(AT_FDCWD, path, buf, AT_SYMLINK_NOFOLLOW);
+}
+
+static int LLLFakeAccess(const char *path, int mode) {
+    if (LLLHideCPath(path)) { errno = ENOENT; return -1; }
+    return faccessat(AT_FDCWD, path, mode, 0);
+}
+
+__attribute__((used)) static const LLLInterpose LLLInterposeStat
+    __attribute__((section("__DATA,__interpose"))) = {
+        (const void *)&LLLFakeStat, (const void *)&stat };
+__attribute__((used)) static const LLLInterpose LLLInterposeLstat
+    __attribute__((section("__DATA,__interpose"))) = {
+        (const void *)&LLLFakeLstat, (const void *)&lstat };
+__attribute__((used)) static const LLLInterpose LLLInterposeAccess
+    __attribute__((section("__DATA,__interpose"))) = {
+        (const void *)&LLLFakeAccess, (const void *)&access };
+
 #pragma mark - 文件枚举过滤
 
 static BOOL LLLHiddenPath(NSString *path) {

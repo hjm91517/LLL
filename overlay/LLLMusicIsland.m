@@ -12,6 +12,7 @@
 #import <math.h>
 #import "LLLAnim.h"
 #import "AppTheme.h"
+#import <AVFoundation/AVFoundation.h>
 
 static const CGFloat kCompactW = 218, kCompactH = 38;
 static const CGFloat kExpandW  = 372, kExpandH  = 248;
@@ -22,6 +23,7 @@ static UIView     *gPill   = nil;
 
 static UIImageView *gArtSm = nil, *gArtLg = nil;
 static UILabel     *gTitleSm = nil, *gTitleLg = nil, *gArtistLg = nil;
+static UIView      *gTitleClip = nil;   /* 跑马灯裁剪层：文字只能在这一格内滚动 */
 static UILabel     *gTimeLg = nil, *gDurLg = nil;
 static UIView      *gBarsBox = nil;
 static NSArray<UIView *> *gBars = nil;
@@ -33,10 +35,13 @@ static UISlider    *gSeekSld = nil, *gVolSld = nil;
 static UILabel     *gVolIcon = nil, *gCacheLabel = nil;
 static UIButton    *gCloudBtn = nil, *gCacheBtn = nil;
 static BOOL         gSeeking = NO, gVolDragging = NO;
+static AVPlayerLayer *gVidSm = nil, *gVidLg = nil;   /* 本地 mp4/mov 时把画面投到封面位 */
 
 static NSTimer     *gTick = nil, *gCollapseTimer = nil;
 static BOOL         gShowing = NO, gExpanded = NO, gBuilding = NO;
 static NSString    *gLegacyTitle = nil;
+/* v3.3：临时标题（清缓存进度等）。非空时盖住歌名，3 秒后自动还原 */
+static NSString    *gTransientText = nil;
 static BOOL         gLegacyPlaying = NO;
 static void (^gTapHandler)(void) = nil;
 
@@ -79,6 +84,8 @@ static void (^gTapHandler)(void) = nil;
 + (void)applyContent;
 + (void)scheduleCollapse;
 + (void)showIsland;
++ (void)attachVideo:(nullable AVPlayer *)player;
++ (CGRect)pillRectForWidth:(CGFloat)w height:(CGFloat)h;
 + (void)onTap:(UIGestureRecognizer *)g;
 + (void)onLongPress:(UILongPressGestureRecognizer *)g;
 + (void)seekChanged:(UISlider *)sld;
@@ -91,6 +98,42 @@ static void (^gTapHandler)(void) = nil;
 + (void)onNext:(id)s;
 + (void)onClose:(id)s;
 @end
+
+/* 圆形封面转起来（黑胶感）；非圆形不转 */
+static void LLLSpin(UIView *v, BOOL on) {
+    if (!v) return;
+    if (on) {
+        if ([v.layer animationForKey:@"spin"]) return;
+        CABasicAnimation *a = [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
+        a.fromValue = @0;
+        a.toValue = @(M_PI * 2.0);
+        a.duration = 8.0;
+        a.repeatCount = HUGE_VALF;
+        [v.layer addAnimation:a forKey:@"spin"];
+    } else {
+        [v.layer removeAnimationForKey:@"spin"];
+    }
+}
+
+/* 音量图标用 SF Symbol，不用 emoji */
+static void LLLSetVolIcon(UILabel *l, float v) {
+    if (!l) return;
+    if (@available(iOS 13.0, *)) {
+        NSString *sym = (v < 0.02f) ? @"speaker.slash.fill"
+                        : ((v < 0.5f) ? @"speaker.wave.1.fill" : @"speaker.wave.3.fill");
+        UIImage *img = [UIImage systemImageNamed:sym];
+        if (img) {
+            img = [img imageWithTintColor:[UIColor colorWithWhite:0.88 alpha:1]
+                           renderingMode:UIImageRenderingModeAlwaysOriginal];
+            NSTextAttachment *att = [NSTextAttachment new];
+            att.image = img;
+            att.bounds = CGRectMake(0, -2, img.size.width, img.size.height);
+            l.attributedText = [NSAttributedString attributedStringWithAttachment:att];
+            return;
+        }
+    }
+    l.text = @"";
+}
 
 @implementation LLLMusicIsland
 
@@ -163,11 +206,14 @@ static void (^gTapHandler)(void) = nil;
     gWin = [self islandWindow];
     gWin.windowLevel = UIWindowLevelStatusBar + 500;
     gWin.backgroundColor = UIColor.clearColor;
+    gWin.opaque = NO;
     gWin.userInteractionEnabled = YES;
+    /* 【占全屏修复】窗口和胶囊同尺寸：覆盖层不再整屏铺开，游戏区域一个像素都不占 */
+    gWin.frame = [self pillRectForWidth:kCompactW height:kCompactH];
 
-    gHost = [[LLLIslandHostView alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    gHost = [[LLLIslandHostView alloc] initWithFrame:CGRectMake(0, 0, kCompactW, kCompactH)];
     gHost.backgroundColor = UIColor.clearColor;
-    gHost.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    gHost.autoresizingMask = UIViewAutoresizingNone;
     UIViewController *vc = [UIViewController new];
     vc.view = gHost;
     gWin.rootViewController = vc;
@@ -210,9 +256,17 @@ static void (^gTapHandler)(void) = nil;
     gArtLg.hidden = YES;
     [gPill addSubview:gArtLg];
 
+    /* 【跑马灯越界修复】标题外面套一层裁剪视图。
+       以前直接把 label 左移，文字会滑出胶囊、压到封面甚至飘到岛外 */
+    gTitleClip = [[UIView alloc] initWithFrame:CGRectMake(39, 0, 120, kCompactH)];
+    gTitleClip.clipsToBounds = YES;
+    gTitleClip.backgroundColor = UIColor.clearColor;
+    gTitleClip.userInteractionEnabled = NO;
+    [gPill addSubview:gTitleClip];
+
     gTitleSm = [self label:12 weight:UIFontWeightSemibold color:UIColor.whiteColor];
-    gTitleSm.frame = CGRectMake(39, 0, 120, kCompactH);
-    [gPill addSubview:gTitleSm];
+    gTitleSm.frame = CGRectMake(0, 0, 120, kCompactH);
+    [gTitleClip addSubview:gTitleSm];
 
     gTitleLg = [self label:15 weight:UIFontWeightSemibold color:UIColor.whiteColor];
     gTitleLg.frame = CGRectMake(86, 16, kExpandW - 86 - 46, 20);
@@ -264,7 +318,7 @@ static void (^gTapHandler)(void) = nil;
 
     /* v2.2：独立音量（只调音乐播放器，不动系统音量） */
     gVolIcon = [self label:14 weight:UIFontWeightMedium color:[UIColor colorWithWhite:0.85 alpha:1]];
-    gVolIcon.text = @"🔊";
+    LLLSetVolIcon(gVolIcon, 0.8f);
     gVolIcon.frame = CGRectMake(18, 138, 24, 26);
     gVolIcon.hidden = YES;
     [gPill addSubview:gVolIcon];
@@ -328,7 +382,7 @@ static void (^gTapHandler)(void) = nil;
 
     gCacheLabel = [self label:10 weight:UIFontWeightMedium color:[UIColor colorWithWhite:0.55 alpha:1]];
     gCacheLabel.frame = CGRectMake(18, 206, kExpandW - 36, 18);
-    gCacheLabel.text = @"🧹 自动清缓存 · 每 30 秒巡检";
+    gCacheLabel.text = @"自动清缓存 · 每 30 秒巡检";
     gCacheLabel.hidden = YES;
     [gPill addSubview:gCacheLabel];
 
@@ -337,6 +391,14 @@ static void (^gTapHandler)(void) = nil;
     gCloseBtn.hidden = YES;
     [gCloseBtn addTarget:self action:@selector(onClose:) forControlEvents:UIControlEventTouchUpInside];
     [gPill addSubview:gCloseBtn];
+
+    /* 进度条 / 音量 / 切歌全靠这条桥，装上以后再显示，不然滑条是死的 */
+    @try {
+        MainViewController *host = [MainViewController cloudHost];
+        if ([host respondsToSelector:@selector(installNowPlayingBridge)]) {
+            [host installNowPlayingBridge];
+        }
+    } @catch (__unused NSException *e) { }
 
     [self layoutForExpanded:NO animated:NO];
     [self applyContent];
@@ -356,19 +418,41 @@ static void (^gTapHandler)(void) = nil;
 
 #pragma mark - 布局
 
+/* 胶囊在屏幕坐标里的落点：水平居中，状态栏下方 6pt */
++ (CGRect)pillRectForWidth:(CGFloat)w height:(CGFloat)h {
+    CGSize screen = UIScreen.mainScreen.bounds.size;
+    if (screen.width < 10 || screen.height < 10) screen = CGSizeMake(390, 844);
+    CGFloat x = floorf((screen.width - w) / 2.0f);
+    CGFloat y = [self topInset] + 1;
+    if (@available(iOS 11.0, *)) {
+        UIWindow *key = UIApplication.sharedApplication.keyWindow;
+        if (key) {
+            UIEdgeInsets si = key.safeAreaInsets;
+            CGFloat maxTop = screen.height - h - 12;
+            /* 有刘海/灵动岛的真机：状态栏高度已经包含安全区，别再加一次 */
+            if (si.top > 0) y = MAX(y, si.top - 4);   /* 3.11：整体上移 */
+            if (y > maxTop) y = MAX(8, maxTop);
+        }
+    }
+    return CGRectMake(x, y, w, h);
+}
+
 + (void)layoutForExpanded:(BOOL)expanded animated:(BOOL)animated {
     if (!gPill) return;
     CGFloat w = expanded ? kExpandW : kCompactW;
     CGFloat h = expanded ? kExpandH : kCompactH;
 
     void (^apply)(void) = ^{
-        CGSize host = gHost.bounds.size;
-        if (host.width < 10) host = UIScreen.mainScreen.bounds.size;
-        gPill.frame = CGRectMake((host.width - w) / 2.0, [self topInset] + 6, w, h);
+        CGRect win = [self pillRectForWidth:w height:h];
+        /* 窗口 = 胶囊：宿主、根视图、胶囊三者同框，没有整屏遮罩可挡 */
+        gWin.frame = win;
+        gHost.frame = CGRectMake(0, 0, w, h);
+        gPill.frame = CGRectMake(0, 0, w, h);
         gPill.layer.cornerRadius = expanded ? 26 : (kCompactH / 2.0);
 
         gArtSm.hidden = expanded;
         gTitleSm.hidden = expanded;
+        gTitleClip.hidden = expanded;
         gBarsBox.hidden = expanded;
 
         gArtLg.hidden = !expanded;
@@ -412,7 +496,7 @@ static NSString *LLLClock(NSTimeInterval t) {
     if (!gPill) return;
     LLLNowPlaying *np = [LLLNowPlaying shared];
 
-    NSString *title = np.title.length ? np.title : gLegacyTitle;
+    NSString *title = gTransientText.length ? gTransientText : (np.title.length ? np.title : gLegacyTitle);
     BOOL playing = np.hasTrack ? np.playing : gLegacyPlaying;
     if (!title.length) title = @"未在播放";
 
@@ -442,12 +526,21 @@ static NSString *LLLClock(NSTimeInterval t) {
         gArtLg.image = art;
         gArtSm.contentMode = UIViewContentModeScaleAspectFill;
         gArtLg.contentMode = UIViewContentModeScaleAspectFill;
-    } else {
-        gArtSm.image = nil;
-        gArtLg.image = nil;
+    } else if (@available(iOS 13.0, *)) {
+        /* 没有封面也要有音乐图标，不能留个空灰块 */
+        UIImage *ph = [UIImage systemImageNamed:@"music.note"];
+        ph = [ph imageWithTintColor:[UIColor colorWithWhite:0.55 alpha:1]
+                      renderingMode:UIImageRenderingModeAlwaysOriginal];
+        gArtSm.image = ph;
+        gArtLg.image = ph;
+        gArtSm.contentMode = UIViewContentModeCenter;
+        gArtLg.contentMode = UIViewContentModeCenter;
         gArtSm.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
         gArtLg.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
     }
+
+    /* 胶囊封面是圆的 → 播放时转 */
+    LLLSpin(gArtSm, playing && gVidSm == nil);
 
     if (@available(iOS 13.0, *)) {
         UIImageSymbolConfiguration *cfg =
@@ -531,6 +624,12 @@ static NSString *LLLClock(NSTimeInterval t) {
     [self buildIfNeeded];
     if (!gPill) return;
     [self daemonStart];
+
+    /* 【不显示修复】hide 会把整个 window 藏起来；这里必须先把 window 拉回来，
+       否则胶囊动画跑在隐藏窗口上 = 灵动岛彻底消失（清缓存后再也看不到岛的原因） */
+    gWin.hidden = NO;
+    gWin.alpha = 1;
+
     [self applyContent];
 
     if (!gShowing) {
@@ -542,6 +641,9 @@ static NSString *LLLClock(NSTimeInterval t) {
             gPill.alpha = 1;
             gPill.transform = CGAffineTransformIdentity;
         });
+    } else if (gPill.hidden) {
+        gPill.hidden = NO;
+        gPill.alpha = 1;
     }
     [self layoutForExpanded:gExpanded animated:YES];
 }
@@ -552,17 +654,45 @@ static NSString *LLLClock(NSTimeInterval t) {
             if (!gPill || !gShowing) return;
             gShowing = NO;
             gExpanded = NO;
+            gSeeking = NO;
+            gTransientText = nil;
             [self daemonStop];
             [gCollapseTimer invalidate];
             gCollapseTimer = nil;
             [gPill.layer removeAllAnimations];
+            [gTitleSm.layer removeAllAnimations];
             [UIView animateWithDuration:0.22 animations:^{
                 gPill.alpha = 0;
                 gPill.transform = CGAffineTransformMakeScale(0.86, 0.86);
             } completion:^(BOOL f) {
                 gPill.hidden = YES;
+                gWin.hidden = YES;
                 gPill.transform = CGAffineTransformIdentity;
             }];
+        } @catch (__unused NSException *e) { }
+    });
+}
+
+/* 本地视频：同一个 AVPlayer 可以挂多个 AVPlayerLayer，封面位直接出画面 */
++ (void)attachVideo:(AVPlayer *)player {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            [gVidSm removeFromSuperlayer]; gVidSm = nil;
+            [gVidLg removeFromSuperlayer]; gVidLg = nil;
+            if (!player || !gArtSm || !gArtLg) return;
+
+            gVidSm = [AVPlayerLayer playerLayerWithPlayer:player];
+            gVidSm.videoGravity = AVLayerVideoGravityResizeAspectFill;
+            gVidSm.frame = gArtSm.bounds;
+            [gArtSm.layer addSublayer:gVidSm];
+
+            gVidLg = [AVPlayerLayer playerLayerWithPlayer:player];
+            gVidLg.videoGravity = AVLayerVideoGravityResizeAspectFill;
+            gVidLg.frame = gArtLg.bounds;
+            [gArtLg.layer addSublayer:gVidLg];
+
+            gArtSm.image = nil;
+            gArtLg.image = nil;
         } @catch (__unused NSException *e) { }
     });
 }
@@ -611,36 +741,88 @@ static NSString *LLLClock(NSTimeInterval t) {
 
 /* v2.2：独立音量 —— 只作用于音乐播放器（applyVolume），不影响系统音量 */
 + (void)volChanged:(UISlider *)sld {
-    [[LLLNowPlaying shared] send:LLLNPCommandVolume value:(double)sld.value];
-    gVolIcon.text = (sld.value < 0.02f) ? @"🔇" : ((sld.value < 0.5f) ? @"🔉" : @"🔊");
+    double v = sld.value;
+    [[NSUserDefaults standardUserDefaults] setDouble:v forKey:@"LLL.volume"];
+    LLLSetVolIcon(gVolIcon, (float)v);
+    [[LLLNowPlaying shared] send:LLLNPCommandVolume value:v];
+
+    /* 没播过网易云时命令桥是空的，滑条就成了摆设；这里直接找宿主应用音量 */
+    MainViewController *host = [MainViewController cloudHost];
+    if ([host respondsToSelector:@selector(applyVolume)]) {
+        [host performSelector:@selector(applyVolume)];
+    }
 }
 
 + (void)onCacheTap:(id)sender {
-    gCacheLabel.text = @"🧹 正在清理缓存…";
     PlayHaptic(YES);
+    gTransientText = @"正在清理缓存…";
+    [self applyContent];
+    if (gCacheLabel) gCacheLabel.text = gTransientText;
+    /* LLLCacheCleanNow 内部只做一次 dispatch，真正的枚举在后台队列，主线程不卡 */
     LLLCacheCleanNow();
 }
 
 + (void)onCloudTap:(id)sender {
-    /* 复用主面板的网易云入口（扫码 / 手机号 / Cookie 三合一），
-       登录态变化后 applyContent 会自动同步岛上按钮文案 */
-    MainViewController *vc = [[MainViewController alloc] init];
+    /* 【网易云入口修复】用常驻宿主 VC，不要每次 new 一个没人持有的控制器：
+       临时 VC 会被 ARC 立刻回收，登录回调全打到 nil 上 → 点了没反应 */
+    MainViewController *vc = [MainViewController cloudHost];
     [vc openCloudMusic];
 }
 
 /* 供 CacheCleaner 调用：自动清缓存的状态合并显示在灵动岛上 */
++ (void)clearCacheLabel {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (gCacheLabel) {
+            gCacheLabel.text = @"";
+            gCacheLabel.textColor = [UIColor colorWithWhite:0.55 alpha:1];
+        }
+        gTransientText = nil;
+        [self applyContent];
+    });
+}
+
 + (void)showCacheStatus:(NSString *)text count:(NSUInteger)count isError:(BOOL)isError {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self buildIfNeeded];
-        if (!gCacheLabel) return;
-        NSMutableString *t = [NSMutableString string];
-        [t appendString:@"🧹 "];
-        if (text.length) [t appendString:text];
-        if (count > 0) [t appendFormat:@" · %lu 个", (unsigned long)count];
-        gCacheLabel.text = t;
-        gCacheLabel.textColor = isError
-            ? [UIColor colorWithRed:1 green:0.42 blue:0.42 alpha:1]
-            : [UIColor colorWithWhite:0.55 alpha:1];
+        @try {
+            [self buildIfNeeded];
+            if (!gCacheLabel) return;
+
+            NSMutableString *t = [NSMutableString string];
+            if (text.length) [t appendString:text];
+            if (count > 0) [t appendFormat:@" · %lu 个", (unsigned long)count];
+            NSString *line = [t copy];
+
+            /* 【清缓存看不到岛修复】胶囊态也要能看见结果：临时盖住歌名 */
+            gTransientText = line;
+            if (!gShowing) [self showIsland];
+            [self applyContent];
+
+            gCacheLabel.text = line;
+            if (isError) {
+                gCacheLabel.textColor = [UIColor colorWithRed:1 green:0.42 blue:0.42 alpha:1];
+            } else if ([text containsString:@"已清除"] || [text containsString:@"清理完毕"]) {
+                gCacheLabel.textColor = [UIColor colorWithRed:0.30 green:0.85 blue:0.45 alpha:1];
+            } else {
+                gCacheLabel.textColor = [UIColor colorWithRed:1 green:0.62 blue:0.20 alpha:1];
+            }
+            [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(clearCacheLabel) object:nil];
+            [self performSelector:@selector(clearCacheLabel) withObject:nil afterDelay:3.0];
+
+            /* 没在放歌就把岛收回去，别一直挂在屏幕上 */
+            LLLNowPlaying *np = [LLLNowPlaying shared];
+            if (!np.playing && !gLegacyPlaying) {
+                [gCollapseTimer invalidate];
+                gCollapseTimer = [NSTimer timerWithTimeInterval:4.0 repeats:NO block:^(NSTimer *tm) {
+                    @try {
+                        if (![LLLNowPlaying shared].playing && !gLegacyPlaying) {
+                            [LLLMusicIsland setExpanded:NO];
+                            [LLLMusicIsland hide];
+                        }
+                    } @catch (__unused NSException *e) { }
+                }];
+                [[NSRunLoop mainRunLoop] addTimer:gCollapseTimer forMode:NSRunLoopCommonModes];
+            }
+        } @catch (__unused NSException *e) { }
     });
 }
 
