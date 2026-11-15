@@ -1,10 +1,17 @@
 //
-//  LLLPlayerCore.m  — 4.0 定稿
+//  core/LLLPlayerCore.m  — 4.0
+//
+//  4.0：取流按"登录态"分两条路 ——
+//    已登录 → LLLCloudVIP（eapi 多档，含会员音质）
+//    未登录 → LLLGuestMusic（游客通道，免费曲可用）
+//  这样不登录也能听，登录了能听更多，不用两套 UI。
 //
 
 #import "LLLPlayerCore.h"
 #import "LLLNowPlaying.h"
 #import "LLLCloudVIP.h"
+#import "LLLGuestMusic.h"
+#import "LLLCloudMusic.h"
 #import "LLLMusicIsland.h"
 #import "BaseComponents.h"
 #import <AVFoundation/AVFoundation.h>
@@ -42,7 +49,6 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 @property (nonatomic, strong) id endObserver;
 @property (nonatomic, strong) id failObserver;
 
-/// 请求序号：连续切歌时丢弃过期的取流回调，防止 A 的地址盖掉 B
 @property (nonatomic, assign) NSUInteger seekToken;
 @property (nonatomic, strong) NSTimer *holdTimer;
 @end
@@ -85,7 +91,7 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
                options:AVAudioSessionCategoryOptionMixWithOthers |
                        AVAudioSessionCategoryOptionDuckOthers
                  error:nil];
-        [s setActive:YES error:nil];
+        [s setActive:YES error:NO];
     } @catch (__unused NSException *e) { }
 }
 
@@ -104,7 +110,6 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
     });
 }
 
-/// 内核 → LLLNowPlaying（灵动岛只读那边，所以必须同步）
 - (void)pushToNowPlaying {
     LLLNowPlaying *np = [LLLNowPlaying shared];
     if (!self.hasTrack) {
@@ -330,7 +335,7 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
     [[NSRunLoop mainRunLoop] addTimer:self.holdTimer forMode:NSRunLoopCommonModes];
 }
 
-#pragma mark - 网易云播放
+#pragma mark - 网易云播放（登录 / 免登录两条路）
 
 - (void)playCloudAtIndex:(NSInteger)index {
     if (self.cloudSongs.count == 0) return;
@@ -373,9 +378,7 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
         }];
     }
 
-    [[LLLCloudVIP shared] resolveStreamURL:sid
-                                 duration:[song[@"dur"] doubleValue]
-                                     done:^(NSURL *url, NSString *err) {
+    void (^onResolved)(NSURL *, NSString *) = ^(NSURL *url, NSString *err) {
         __strong typeof(w) s = w;
         if (!s) return;
         if (s.seekToken != token) return;
@@ -383,7 +386,12 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
         if (!url) {
             s.playing = NO;
             [s broadcast];
-            ShowToast(err.length ? err : @"这首拿不到音源", 2.2, YES, YES);
+            NSString *msg = err.length ? err : @"这首拿不到音源";
+            /* 免登录通道拿不到时，把话说清楚，别让人以为卡住了 */
+            if (![LLLCloudMusic shared].loggedIn) {
+                msg = [msg stringByAppendingString:@"（会员曲需登录）"];
+            }
+            ShowToast(msg, 2.4, YES, YES);
             [s scheduleAutoSkipAfter:2.0];
             return;
         }
@@ -407,7 +415,18 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
                 [s2 broadcast];
             }
         });
-    }];
+    };
+
+    /* 登录态决定走哪条取流路：登录 → eapi 多档；未登录 → 游客通道 */
+    if ([LLLCloudMusic shared].loggedIn) {
+        [[LLLCloudVIP shared] resolveStreamURL:sid
+                                     duration:[song[@"dur"] doubleValue]
+                                         done:onResolved];
+    } else {
+        [[LLLGuestMusic shared] resolveStreamURL:sid
+                                       duration:[song[@"dur"] doubleValue]
+                                           done:onResolved];
+    }
 }
 
 - (void)scheduleAutoSkipAfter:(NSTimeInterval)delay {
@@ -477,7 +496,6 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 }
 
 - (void)togglePlayPause {
-    /* 没播过东西也要能起播 —— 卡片按钮"不管用"就是死在这一步 */
     if (!self.hasTrack || self.queueCount == 0) {
         [self playFirstFromCurrentSource];
         return;
@@ -555,7 +573,6 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
     if (n <= 0) return;
 
     if (self.mode == LLLPlayModeSequential && self.currentIndex + 1 >= n) {
-        /* 顺序模式到头：停住，别偷偷跳回第一首装作循环 */
         [self pause];
         [self seekTo:0];
         return;
