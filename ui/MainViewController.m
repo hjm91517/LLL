@@ -141,6 +141,14 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         NSUserDefaults *def = [NSUserDefaults standardUserDefaults];
         _bgMode = [def integerForKey:@"BGSwitchMode"];
         _bgCurrentIndex = [def integerForKey:@"BGCurrentIndex"];
+
+        /* PATCH:4.0-mode */
+        NSInteger lllPM = [def integerForKey:@"LLL.playMode"];
+        if (lllPM >= LLLPlayModeOrder && lllPM <= LLLPlayModeShuffle) {
+            _playMode = (LLLPlayMode)lllPM;
+            _loopModeSingle = (_playMode == LLLPlayModeRepeatOne);
+            _shuffleMode = (_playMode == LLLPlayModeShuffle);
+        }
     }
     return self;
 }
@@ -325,6 +333,9 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     _musicSrcSeg = [[UISegmentedControl alloc] initWithItems:@[@"本地音乐", @"网易云"]];
     _musicSrcSeg.selectedSegmentIndex = [[NSUserDefaults standardUserDefaults] integerForKey:@"LLL.musicSource"];
     _musicSrcSeg.selectedSegmentTintColor = LLLAccentColor();
+    /* PATCH:4.0-seg-init */
+    // 启动停在「材质包」，音源条属于音乐页，一开始就不该露出来
+    _musicSrcSeg.hidden = YES;
     _musicSrcSeg.translatesAutoresizingMaskIntoConstraints = NO;
     [_musicSrcSeg addTarget:self action:@selector(musicSourceChanged:) forControlEvents:UIControlEventValueChanged];
     [cv addSubview:_musicSrcSeg];
@@ -719,6 +730,34 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     _playerTimeLabel.textAlignment = NSTextAlignmentRight;
     [_playerCard addSubview:_playerTimeLabel];
 
+    /* PATCH:4.0-login-btn */
+    // 网易云登录入口（原按钮藏在 musicControlBar，2.4 把那栏隐藏后就没入口了）
+    UIButton *cloudKey = [UIButton buttonWithType:UIButtonTypeSystem];
+    cloudKey.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *ccfg = [UIImageSymbolConfiguration configurationWithPointSize:11 weight:UIImageSymbolWeightSemibold];
+        [cloudKey setImage:[UIImage systemImageNamed:@"person.crop.circle" withConfiguration:ccfg] forState:UIControlStateNormal];
+    }
+    [cloudKey setTitle:@"登录" forState:UIControlStateNormal];
+    cloudKey.titleLabel.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
+    cloudKey.titleLabel.adjustsFontSizeToFitWidth = YES;
+    cloudKey.titleLabel.minimumScaleFactor = 0.6;
+    cloudKey.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+    cloudKey.tintColor = UIColor.whiteColor;
+    cloudKey.backgroundColor = LLLAccentColor();
+    cloudKey.layer.cornerRadius = 13;
+    cloudKey.layer.cornerCurve = kCACornerCurveContinuous;
+    cloudKey.clipsToBounds = YES;
+    [cloudKey addTarget:self action:@selector(openCloudMusic) forControlEvents:UIControlEventTouchUpInside];
+    _playerCloudBtn = cloudKey;
+    [_playerCard addSubview:cloudKey];
+    [NSLayoutConstraint activateConstraints:@[
+        [cloudKey.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-12],
+        [cloudKey.centerYAnchor constraintEqualToAnchor:_playerCover.centerYAnchor],
+        [cloudKey.widthAnchor constraintEqualToConstant:46],
+        [cloudKey.heightAnchor constraintEqualToConstant:24]
+    ]];
+
     // 传输控制
     UIButton *prev = [self playerButton:@"backward.fill" size:20 side:44 action:@selector(prevMusic)];
     _playerPlayBtn = [self playerButton:@"play.fill" size:24 side:58 action:@selector(togglePlayPause)];
@@ -794,7 +833,9 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         [_playerTimeLabel.topAnchor constraintEqualToAnchor:_playerProgress.bottomAnchor constant:2],
         [_playerTimeLabel.widthAnchor constraintEqualToConstant:120],
 
-        [row.centerXAnchor constraintEqualToAnchor:_playerCard.centerXAnchor],
+        /* PATCH:4.0-row-pin */
+        [row.leadingAnchor constraintEqualToAnchor:_playerCard.leadingAnchor constant:14],
+        [row.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-14],
         [row.topAnchor constraintEqualToAnchor:_playerTimeLabel.bottomAnchor constant:10],
         [row.heightAnchor constraintEqualToConstant:58],
 
@@ -833,7 +874,9 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     b.layer.cornerRadius = side / 2;
     b.layer.cornerCurve = kCACornerCurveContinuous;
     [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
-    [b.widthAnchor constraintEqualToConstant:side].active = YES;
+    /* PATCH:4.0-btn-width */
+    // 只钉高度，宽度交给 FillEqually。写死 44/58 时四个键共 250pt，
+    // 而卡片内容宽只有 174pt，两侧被 clipsToBounds 裁掉，点击热区也没了
     [b.heightAnchor constraintEqualToConstant:side].active = YES;
     return b;
 }
@@ -1060,6 +1103,9 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     to.hidden = NO;
     for (UITableView *v in others) v.hidden = YES;
     self.settingsView.hidden = YES;
+    /* PATCH:4.0-seg-switch */
+    // 「本地 / 网易云」只在音乐页出现，否则它会浮在材质包列表上
+    self.musicSrcSeg.hidden = (to != self.musict);
 
     [self setTab:self.tab1 active:(to == self.st)];
     [self setTab:self.tab2 active:(to == self.qt)];
@@ -1138,6 +1184,9 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 
 - (void)musicSourceChanged:(UISegmentedControl *)seg {
     [[NSUserDefaults standardUserDefaults] setInteger:seg.selectedSegmentIndex forKey:@"LLL.musicSource"];
+    /* PATCH:4.0-src-reset */
+    // 行数一变 contentOffset 还在原地，看着就像跳到了别的页面
+    [self.musict setContentOffset:CGPointZero animated:NO];
     [self reloadMusicTab];
 }
 
@@ -1176,7 +1225,10 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     /* 【修复】进入音乐页必须展开播放器卡片并显示控制栏。
        此前从未恢复：卡片 hidden=YES 且 playerHeight 恒为 0 → 音乐页全空 */
     self.playerCard.hidden = NO;
-    if (self.playerHeight) self.playerHeight.constant = 310;
+    /* PATCH:4.0-card-h */
+    // 310 装不下歌词行（内容实际要 322），底部会被 clipsToBounds 切掉
+    if (self.playerHeight) self.playerHeight.constant = 324;
+    self.musicSrcSeg.hidden = NO;
     // 2.4: 只留 playerCard 一套播放 UI
     self.musicControlBar.hidden = YES;
     self.musicControlBar.alpha = 0;
@@ -1205,6 +1257,8 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     }
     [self.view bringSubviewToFront:self.settingsView];
     self.settingsView.userInteractionEnabled = YES;
+    /* PATCH:4.0-seg-settings */
+    self.musicSrcSeg.hidden = YES;
     // 已经在设置页了，点多少次都别重播动画
     if (!self.settingsView.hidden && self.settingsView.alpha > 0.9) return;
 
