@@ -1,7 +1,5 @@
 //
 //  LLLCloudVIP.m  — 4.0
-//  取流多档回退用「实例方法递归」而不是自捕获 block：
-//  后者在 block 字面量里引用自身变量属于未初始化捕获（-Werror,-Wuninitialized）。
 //
 
 #import "LLLCloudVIP.h"
@@ -352,13 +350,16 @@ static NSData *LLLAESECB(NSData *plain, NSString *key) {
     UIImage *hit = [self cachedArtwork:urlString];
     if (hit) { if (done) done(hit); return; }
 
+    /* 同一张图只下载一次；后来者排队等结果 */
     @synchronized (self) {
         NSMutableArray *waiters = _pendingArt[urlString];
         if (waiters) {
             if (done) [waiters addObject:[done copy]];
             return;
         }
-        _pendingArt[urlString] = [NSMutableArray arrayWithObject:[done copy] ?: ^{}];
+        NSMutableArray *list = [NSMutableArray array];
+        if (done) [list addObject:[done copy]];
+        _pendingArt[urlString] = list;
     }
 
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlString]];
@@ -382,7 +383,8 @@ static NSData *LLLAESECB(NSData *plain, NSString *key) {
             waiters = s.pendingArt[urlString];
             [s.pendingArt removeObjectForKey:urlString];
         }
-        for (void (^cb)(UIImage *) in [waiters copy]) {
+        for (id obj in [waiters copy]) {
+            void (^cb)(UIImage *) = obj;
             if (cb) cb(img);
         }
     }] resume];
@@ -410,12 +412,9 @@ static NSData *LLLAESECB(NSData *plain, NSString *key) {
     if (!ids.count) { if (done) done(songs); return; }
 
     NSString *idList = [NSString stringWithFormat:@"[%@]", [ids componentsJoinedByString:@","]];
-    __weak typeof(self) w = self;
     [self postEapi:@"/api/song/enhance/player/url/v1"
             params:@{ @"ids" : idList, @"level" : @"exhigh" }
               done:^(id json, NSError *err) {
-        __strong typeof(w) s = w;
-        if (!s) return;
         if (![json isKindOfClass:NSDictionary.class] ||
             ![json[@"data"] isKindOfClass:NSArray.class]) {
             if (done) done(songs);
