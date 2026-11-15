@@ -1,6 +1,6 @@
 //
-//  LLLCloudLogin.h
-//  网易云入口：三种登录方式 + 云端播放
+//  ui/LLLCloudLogin.h  — 4.0
+//  网易云入口：四种登录方式 + 队列播放（全部转 LLLPlayerCore）
 //
 
 #import "MainViewController.h"
@@ -13,12 +13,17 @@ NS_ASSUME_NONNULL_BEGIN
 + (MainViewController *)cloudHost;
 + (void)registerCloudHost:(MainViewController *)vc;
 
+/// 统一入口：未登录弹登录方式选择，已登录弹账号菜单
 - (void)openCloudMusic;
+
+/// 4.0：播放交给内核，这里只负责把人塞进队列再起播
 - (void)playCloudSong:(NSDictionary *)song;
 - (void)setCloudQueue:(NSArray<NSDictionary *> *)songs;
-- (void)installNowPlayingBridge;
 - (void)cloudStep:(NSInteger)delta;
+
 - (void)dismissCloudLoginCard;
+
+#pragma mark - 登录方式
 
 - (void)cloudLoginWeb;
 - (void)doHarvestWebCookies;
@@ -28,6 +33,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)doSendCode;
 - (void)doPhoneLogin;
 - (void)doCookieLogin;
+
 - (void)loginHint:(NSString *)text;
 - (void)loginDone:(BOOL)ok msg:(NSString *)msg;
 
