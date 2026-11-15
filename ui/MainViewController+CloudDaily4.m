@@ -1,17 +1,18 @@
 //
 //  ui/MainViewController+CloudDaily4.m
-//  每日推荐（4.0 新增）。走 LLLCloudMusic 的接口，结果直接进播放队列。
+//  每日推荐（4.0 新增）。归到 CloudLists4 分类下，与声明同一类别，
+//  避免出现「同名 selector 挂在两个分类上」的混乱。
 //
 
 #import "MainViewController+CloudLists4.h"
 #import "MainViewController+Music4.h"
+#import "LLLCloudLogin.h"
 #import "LLLMusicController.h"
 #import "LLLCloudMusic.h"
-#import "LLLCloudVIP.h"
 #import "LLLUiKit.h"
 #import "BaseComponents.h"
 
-@implementation MainViewController (CloudDaily4)
+@implementation MainViewController (CloudLists4)
 
 - (void)showDailyRecommend {
     if (![LLLCloudMusic shared].loggedIn) {
