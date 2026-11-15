@@ -1,6 +1,10 @@
 //
 //  ui/MainViewController+MusicUI4.h
 //
+//  只声明「MusicUI4」这个分类里真正实现了的方法。
+//  免登录面板的方法属于 (GuestPanel4)，声明在 MainViewController+GuestPanel4.h，
+//  绝不能放进这里 —— 否则 -Wincomplete-implementation 会直接判错。
+//
 
 #import "MainViewController.h"
 
@@ -13,14 +17,6 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)lll4_tapCloudLogin;
 - (void)lll4_tapGuestMusic;
 - (void)lll4_refreshLoginButton;
-
-#pragma mark - 免登录面板（实现在 LLLGuestPanel.m）
-
-- (void)lll4_openGuestMusic;
-- (void)lll4_guestSearch;
-- (void)lll4_doGuestSearch;
-- (void)lll4_guestTopList;
-- (void)lll4_presentGuestList:(NSArray<NSDictionary *> *)songs title:(NSString *)title;
 
 @end
 
