@@ -1,14 +1,13 @@
 //
 //  ui/LLLMusicTab4.m
-//  4.0 音乐页表格数据源（分类扩展，统一从 LLLMusicController 取数）。
+//  4.0 音乐页表格数据源扩展（只加工具方法，不改 DataSource）。
 //
-//  老实现里 numberOfRows 和 cellForRow 分别读 _musicSrcSeg 和自己缓存的数组；
-//  分段控件被改、数组没跟上就会越界 → 页面错乱/跳转。
-//  现在两个方法只有一个取数入口，越界不可能发生。
+//  老实现里 numberOfRows 和 cellForRow 读不同来源，分段控件一改就错位。
+//  4.0 起统一从 LLLMusicController 取数，这两个工具函数就是唯一入口。
 //
 
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>            /* objc_setAssociatedObject */
+#import <objc/runtime.h>
 #import "MainViewController.h"
 #import "MainViewController_Private.h"
 #import "MainViewController+Music4.h"
@@ -17,13 +16,16 @@
 #import "BaseComponents.h"
 #import "AppTheme.h"
 
+@interface MainViewController (MusicTab4Internal)
+- (void)lll4_musicCellPlay:(UIButton *)sender;
+@end
+
 @implementation MainViewController (MusicTab4)
 
 - (NSInteger)lll4_musicRows {
     return [[LLLMusicController shared] rowCount];
 }
 
-/// 表格里点播放 / 点行，宿主调用它
 - (void)lll4_playMusicRow:(NSInteger)row {
     [[LLLMusicController shared] playRow:row];
     [self.musict reloadData];
