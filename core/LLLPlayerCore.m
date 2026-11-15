@@ -1,10 +1,9 @@
 //
-//  LLLPlayerCore.m
+//  LLLPlayerCore.m  — 4.0 定稿
 //
 
 #import "LLLPlayerCore.h"
 #import "LLLNowPlaying.h"
-#import "LLLCloudMusic.h"
 #import "LLLCloudVIP.h"
 #import "LLLMusicIsland.h"
 #import "BaseComponents.h"
@@ -28,7 +27,6 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 @property (nonatomic, strong, readwrite, nullable) UIImage *artwork;
 @property (nonatomic, copy, readwrite, nullable) NSString *artworkURL;
 @property (nonatomic, assign, readwrite) NSTimeInterval duration;
-@property (nonatomic, assign, readwrite) NSTimeInterval elapsed;
 @property (nonatomic, assign, readwrite) NSInteger currentIndex;
 @property (nonatomic, assign, readwrite) NSUInteger queueCount;
 @property (nonatomic, strong, readwrite, nullable) NSDictionary *currentSong;
@@ -120,10 +118,10 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
                artwork:self.artwork
             artworkURL:self.artworkURL
               duration:self.duration
-               elapsed:self.elapsed
+               elapsed:[self currentElapsed]
                  cloud:cloud];
     } else {
-        [np updateElapsed:self.elapsed duration:self.duration];
+        [np updateElapsed:[self currentElapsed] duration:self.duration];
         if (self.artwork) [np updateArtwork:self.artwork url:self.artworkURL];
     }
     [np setPlaying:self.playing];
@@ -163,7 +161,6 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
         _artwork = nil;
         _artworkURL = nil;
         _duration = 0;
-        _elapsed = 0;
         _hasTrack = NO;
         _currentSong = nil;
         _currentIndex = -1;
@@ -171,14 +168,6 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 }
 
 - (void)observeItemEnd:(AVPlayerItem *)item {
-    if (_endObserver) {
-        [NSNotificationCenter.defaultCenter removeObserver:_endObserver];
-        _endObserver = nil;
-    }
-    if (_failObserver) {
-        [NSNotificationCenter.defaultCenter removeObserver:_failObserver];
-        _failObserver = nil;
-    }
     if (!item) return;
 
     __weak typeof(self) w = self;
@@ -272,7 +261,6 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
     self.artist = isVideo ? @"本地视频" : @"本地音乐";
     self.artwork = nil;
     self.artworkURL = nil;
-    self.elapsed = 0;
     self.hasTrack = YES;
 
     if (isVideo) {
@@ -359,7 +347,6 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
     self.artist   = song[@"artist"] ?: @"网易云音乐";
     self.artwork  = nil;
     self.artworkURL = [song[@"pic"] isKindOfClass:NSString.class] ? song[@"pic"] : nil;
-    self.elapsed  = 0;
     self.duration = [song[@"dur"] doubleValue];
     self.hasTrack = YES;
     self.playing  = NO;
@@ -435,8 +422,8 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 
 #pragma mark - 进度
 
-- (NSTimeInterval)elapsed {
-    if (_audio && _audio.duration > 0.01) return _audio.currentTime;
+- (NSTimeInterval)currentElapsed {
+    if (_audio && _audio.duration > 0.01) return MAX(0, _audio.currentTime);
     if (_cloud && _cloud.currentItem) {
         double t = CMTimeGetSeconds(_cloud.currentTime);
         if (isfinite(t)) return MAX(0, t);
@@ -445,12 +432,11 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
         double t = CMTimeGetSeconds(_video.currentTime);
         if (isfinite(t)) return MAX(0, t);
     }
-    return _elapsed;
+    return 0;
 }
 
 - (void)refreshElapsedAnchor {
-    NSTimeInterval e = self.elapsed;
-    _elapsed = e;
+    NSTimeInterval e = [self currentElapsed];
 
     NSTimeInterval d = self.duration;
     if (d <= 0.01 && _audio) d = _audio.duration;
@@ -469,10 +455,7 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 #pragma mark - 控制
 
 - (void)play {
-    if (!self.hasTrack) {
-        [self playFirstFromCurrentSource];
-        return;
-    }
+    if (!self.hasTrack) { [self playFirstFromCurrentSource]; return; }
     if (_audio) [_audio play];
     if (_cloud) [_cloud play];
     if (_video) {
@@ -494,6 +477,7 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 }
 
 - (void)togglePlayPause {
+    /* 没播过东西也要能起播 —— 卡片按钮"不管用"就是死在这一步 */
     if (!self.hasTrack || self.queueCount == 0) {
         [self playFirstFromCurrentSource];
         return;
@@ -503,13 +487,11 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 }
 
 - (void)playFirstFromCurrentSource {
-    if (self.source == LLLPlaySourceCloud) {
-        if (self.cloudSongs.count) {
-            NSInteger idx = (self.currentIndex >= 0 && self.currentIndex < (NSInteger)self.cloudSongs.count)
-                            ? self.currentIndex : 0;
-            [self playCloudAtIndex:idx];
-            return;
-        }
+    if (self.source == LLLPlaySourceCloud && self.cloudSongs.count) {
+        NSInteger idx = (self.currentIndex >= 0 && self.currentIndex < (NSInteger)self.cloudSongs.count)
+                        ? self.currentIndex : 0;
+        [self playCloudAtIndex:idx];
+        return;
     }
     if (self.localPaths.count) {
         NSInteger idx = (self.currentIndex >= 0 && self.currentIndex < (NSInteger)self.localPaths.count)
@@ -573,6 +555,7 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
     if (n <= 0) return;
 
     if (self.mode == LLLPlayModeSequential && self.currentIndex + 1 >= n) {
+        /* 顺序模式到头：停住，别偷偷跳回第一首装作循环 */
         [self pause];
         [self seekTo:0];
         return;
@@ -594,7 +577,6 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
         [_video seekToTime:CMTimeMakeWithSeconds(seconds, 600)
            toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
     }
-    _elapsed = seconds;
     [[LLLNowPlaying shared] updateElapsed:seconds duration:self.duration];
     [self broadcast];
 }
@@ -607,11 +589,16 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 }
 
 - (void)cycleMode {
-    LLLPlayMode m = (LLLPlayMode)(((NSInteger)self.mode + 1) % 3);
-    [self setMode:m];
-    NSString *label = (m == LLLPlayModeSingleLoop) ? @"单曲循环"
-                    : ((m == LLLPlayModeShuffle) ? @"随机播放" : @"顺序播放");
-    ShowToast(label, 1.2, YES, NO);
+    [self setMode:(LLLPlayMode)(((NSInteger)self.mode + 1) % 3)];
+    ShowToast([self modeLabel], 1.2, YES, NO);
+}
+
+- (NSString *)modeLabel {
+    switch (self.mode) {
+        case LLLPlayModeSingleLoop: return @"单曲循环";
+        case LLLPlayModeShuffle:    return @"随机播放";
+        default:                    return @"顺序播放";
+    }
 }
 
 - (void)setDoubleSpeed:(BOOL)fast {
@@ -622,9 +609,7 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
     [self broadcast];
 }
 
-- (void)toggleDoubleSpeed {
-    [self setDoubleSpeed:!self.doubleSpeed];
-}
+- (void)toggleDoubleSpeed { [self setDoubleSpeed:!self.doubleSpeed]; }
 
 - (void)setVolume:(float)volume {
     if (volume < 0) volume = 0;
