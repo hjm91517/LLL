@@ -1,7 +1,7 @@
 //
 //  ui/MainViewController+CloudLists4.h
-//  列表方法声明。实现在 MainViewController+Features.m（3.12 就有）。
-//  LLLCloudLogin.m 与 LLLGuestPanel.m 会调这些，所以单独抽个头。
+//  列表方法声明。实现在 MainViewController+Features.m（3.12 就有）；
+//  showDailyRecommend 的实现在 MainViewController+CloudDaily4.m。
 //
 
 #import "MainViewController.h"
