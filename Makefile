@@ -36,6 +36,7 @@ bbhj_online_FILES = \
     ui/MainViewController+Features.m \
     ui/MainViewController+Music4.m \
     ui/MainViewController+MusicUI4.m \
+    ui/MainViewController+CloudDaily4.m \
     ui/MainViewController+Legacy4Shim.m \
     ui/LLLMusicTab4.m \
     ui/LLLMusicController.m \
