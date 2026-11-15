@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// viewDidLoad 末尾调一次（幂等）
 - (void)lll4_installMusicPage;
+- (void)lll4_stopLegacyPlayers;
 
 - (void)lll4_showMusicTab;
 - (void)lll4_musicSourceChanged:(UISegmentedControl *)seg;
