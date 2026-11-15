@@ -1,6 +1,5 @@
 //
 //  ui/MainViewController+Music4.m  — 4.0
-//  音乐页接线：表格、卡片、分段控件全部接到 LLLMusicController / LLLPlayerCore。
 //
 
 #import "MainViewController+Music4.h"
@@ -11,6 +10,7 @@
 #import "LLLMusicController.h"
 #import "LLLPlayerCore.h"
 #import "LLLCloudMusic.h"
+#import "LLLGuestMusic.h"
 #import "LLLIslandCoreBridge.h"
 #import "LLLMusicIsland.h"
 #import "LLLMusicIsland4.h"
@@ -22,7 +22,6 @@
 #import <AVFoundation/AVFoundation.h>
 #import <math.h>
 
-/* 主类私有方法：跨文件用必须本地声明 */
 @interface MainViewController (Music4Internal)
 - (void)switchTo:(UITableView *)to hide:(NSArray *)others bar:(UIView *)bar;
 - (void)setHeader:(NSString *)title sub:(NSString *)sub;
@@ -94,7 +93,8 @@ static void *kLLL4Installed = &kLLL4Installed;
 
 - (void)lll4_showMusicTab {
     self.playerCard.hidden = NO;
-    if (self.playerHeight) self.playerHeight.constant = 310;
+    /* 340：给登录/免登录两颗键留出位置，避免压住标题 */
+    if (self.playerHeight) self.playerHeight.constant = 340;
 
     self.musicControlBar.hidden = YES;
     self.musicControlBar.alpha = 0;
@@ -119,22 +119,42 @@ static void *kLLL4Installed = &kLLL4Installed;
     LLLMusicController *mc = [LLLMusicController shared];
     [mc setSourceKind:k];
 
-    if (k == LLLMusicSourceKindCloud && ![LLLCloudMusic shared].loggedIn) {
-        /* 未登录也能用：进免登录面板，但同时保留表格可见 */
-        ShowToast(@"未登录 · 可听免费曲目", 1.8, YES, NO);
+    if (k == LLLMusicSourceKindLocal) {
         [mc syncHostArrays];
         [self lll4_refreshCard];
-        [self lll4_openGuestMusic];
+        [self setHeader:@"音乐播放器"
+                    sub:[NSString stringWithFormat:@"%ld 首 · 本地", (long)[mc rowCount]]];
         return;
     }
-    if (k == LLLMusicSourceKindCloud) [mc reloadCloudLiked];
 
+    /* 云端：未登录时用飙升榜把列表填上，别留空表格 */
+    if (![LLLCloudMusic shared].loggedIn) {
+        ShowToast(@"未登录 · 已载入飙升榜", 1.6, YES, NO);
+        [mc syncHostArrays];
+        [self lll4_refreshCard];
+        __weak typeof(self) w = self;
+        [[LLLGuestMusic shared] loadTopList:^(NSArray<NSDictionary *> *songs, NSString *err) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                __strong typeof(w) s = w;
+                if (!s) return;
+                if (!songs.count) {
+                    ShowToast(err.length ? err : @"榜单拿不到", 2, YES, YES);
+                    return;
+                }
+                [[LLLMusicController shared] setCloudQueueDirectly:songs];
+                [s lll4_refreshCard];
+                [s setHeader:@"音乐播放器"
+                         sub:[NSString stringWithFormat:@"%lu 首 · 飙升榜（免登录）",
+                              (unsigned long)songs.count]];
+            });
+        }];
+        return;
+    }
+
+    [mc reloadCloudLiked];
     [mc syncHostArrays];
     [self lll4_refreshCard];
-    [self setHeader:@"音乐播放器"
-                sub:[NSString stringWithFormat:@"%ld 首 · %@",
-                     (long)[mc rowCount],
-                     (k == LLLMusicSourceKindCloud) ? @"网易云" : @"本地"]];
+    [self setHeader:@"音乐播放器" sub:@"正在拉取「我喜欢的音乐」…"];
 }
 
 - (void)lll4_reloadMusicTab {
@@ -157,9 +177,7 @@ static void *kLLL4Installed = &kLLL4Installed;
 #pragma mark - 老入口的 4.0 版本
 
 - (void)lll4_playMusicAtIndex:(NSInteger)idx {
-    LLLMusicController *mc = [LLLMusicController shared];
-    if ([mc sourceKind] == LLLMusicSourceKindCloud) [mc playRow:idx];
-    else                                            [mc playRow:idx];
+    [[LLLMusicController shared] playRow:idx];
     [self lll4_refreshCard];
 }
 
