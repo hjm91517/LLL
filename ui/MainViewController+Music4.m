@@ -7,12 +7,13 @@
 #import "MainViewController_Private.h"
 #import "MainViewController+MusicUI4.h"
 #import "MainViewController+CloudLists4.h"
+#import "LLLCloudLogin.h"          /* openCloudMusic / presentLoginChooser */
 #import "LLLMusicController.h"
 #import "LLLPlayerCore.h"
 #import "LLLCloudMusic.h"
 #import "LLLIslandCoreBridge.h"
 #import "LLLMusicIsland.h"
-#import "LLLMusicIsland4.h"
+#import "LLLMusicIsland4.h"        /* lll4_setCloudTapHandler: 在这一层 */
 #import "LLLNowPlaying.h"
 #import "LLLUiKit.h"
 #import "BaseComponents.h"
@@ -20,6 +21,12 @@
 #import <objc/runtime.h>
 #import <AVFoundation/AVFoundation.h>
 #import <math.h>
+
+/* 主类里这些方法是私有的，跨文件用必须在本地补声明 */
+@interface MainViewController (Music4Internal)
+- (void)switchTo:(UITableView *)to hide:(NSArray *)others bar:(UIView *)bar;
+- (void)setHeader:(NSString *)title sub:(NSString *)sub;
+@end
 
 static void *kLLL4Ticker = &kLLL4Ticker;
 static void *kLLL4Installed = &kLLL4Installed;
@@ -43,8 +50,8 @@ static void *kLLL4Installed = &kLLL4Installed;
         __strong typeof(w) s = w;
         if (s) [s openCloudMusic];
     }];
-    /* 岛上的网易云键走同一个回调 */
-    [LLLMusicIsland4 setCloudTapHandler:^{
+    /* 岛上的网易云键走同一个回调（注意：这是 LLLMusicIsland 的分类方法） */
+    [LLLMusicIsland lll4_setCloudTapHandler:^{
         __strong typeof(w) s = w;
         if (s) [s openCloudMusic];
     }];
