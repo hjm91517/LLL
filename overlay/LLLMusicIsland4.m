@@ -14,6 +14,8 @@
 #import "LLLIslandCoreBridge.h"
 #import "BaseComponents.h"
 
+static void (^gIslandCloudTap)(void) = nil;
+
 @implementation LLLMusicIsland (Island4)
 
 #pragma mark - 事件
@@ -38,6 +40,12 @@
     [LLLMusicIsland refresh];
 }
 
+/// 岛上的网易云键：登录后点它 = 打开音乐页；没登录 = 弹登录面板
++ (void)lll4_onCloudTap:(id)sender {
+    if (gIslandCloudTap) { gIslandCloudTap(); return; }
+    [[LLLCloudMusic shared] refreshAccountIfNeeded:nil];
+}
+
 #pragma mark - 安装
 
 + (void)lll4_install {
@@ -49,6 +57,7 @@
                 @[ @"onPrev:",    @"lll4_onPrev:" ],
                 @[ @"onNext:",    @"lll4_onNext:" ],
                 @[ @"onModeTap:", @"lll4_onModeTap:" ],
+                @[ @"onCloudTap:", @"lll4_onCloudTap:" ],
             ];
             Class meta = object_getClass((id)self);
             for (NSArray<NSString *> *p in pairs) {
@@ -115,6 +124,22 @@
         case LLLPlayModeShuffle:    return @"随机";
         default:                    return @"顺序";
     }
+}
+
+#pragma mark - 对外
+
++ (void)setCloudLoginHandler:(void (^)(void))handler {
+    gIslandCloudTap = [handler copy];
+}
+
++ (void)refreshCloudButton {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [LLLMusicIsland refresh];
+    });
+}
+
++ (void)refreshModeButton {
+    [LLLMusicIsland refresh];
 }
 
 @end
