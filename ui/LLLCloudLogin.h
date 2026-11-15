@@ -6,14 +6,17 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 3.12 兼容入口。声明单独一个分类，与 LLLMusicIslandBridge4.m 的实现分类同名，
+/// 否则 (CloudLogin) 会因“声明了却没实现”被判不完整（-Wincomplete-implementation）。
+@interface MainViewController (NowPlayingBridgeCompat)
+- (void)installNowPlayingBridge;
+@end
+
 @interface MainViewController (CloudLogin)
 
 /// 常驻宿主
 + (MainViewController *)cloudHost;
 + (void)registerCloudHost:(MainViewController *)vc;
-
-/// 3.12 兼容：命令桥入口（实现转 LLLIslandCoreBridge）
-- (void)installNowPlayingBridge;
 
 /// 统一入口：未登录 → 弹登录方式选择；已登录 → 弹账号菜单
 - (void)openCloudMusic;
