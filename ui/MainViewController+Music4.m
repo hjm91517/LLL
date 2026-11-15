@@ -7,13 +7,13 @@
 #import "MainViewController_Private.h"
 #import "MainViewController+MusicUI4.h"
 #import "MainViewController+CloudLists4.h"
-#import "LLLCloudLogin.h"          /* openCloudMusic / presentLoginChooser */
+#import "LLLCloudLogin.h"
 #import "LLLMusicController.h"
 #import "LLLPlayerCore.h"
 #import "LLLCloudMusic.h"
 #import "LLLIslandCoreBridge.h"
 #import "LLLMusicIsland.h"
-#import "LLLMusicIsland4.h"        /* lll4_setCloudTapHandler: 在这一层 */
+#import "LLLMusicIsland4.h"
 #import "LLLNowPlaying.h"
 #import "LLLUiKit.h"
 #import "BaseComponents.h"
@@ -22,7 +22,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <math.h>
 
-/* 主类里这些方法是私有的，跨文件用必须在本地补声明 */
+/* 主类私有方法：跨文件用必须本地声明 */
 @interface MainViewController (Music4Internal)
 - (void)switchTo:(UITableView *)to hide:(NSArray *)others bar:(UIView *)bar;
 - (void)setHeader:(NSString *)title sub:(NSString *)sub;
@@ -42,7 +42,6 @@ static void *kLLL4Installed = &kLLL4Installed;
     [[LLLMusicController shared] bindHost:self];
     [[LLLIslandCoreBridge shared] install];
 
-    /* 3.12 留下的播放器全部停掉，状态交给内核 */
     [self lll4_stopLegacyPlayers];
 
     __weak typeof(self) w = self;
@@ -50,7 +49,6 @@ static void *kLLL4Installed = &kLLL4Installed;
         __strong typeof(w) s = w;
         if (s) [s openCloudMusic];
     }];
-    /* 岛上的网易云键走同一个回调（注意：这是 LLLMusicIsland 的分类方法） */
     [LLLMusicIsland lll4_setCloudTapHandler:^{
         __strong typeof(w) s = w;
         if (s) [s openCloudMusic];
@@ -58,7 +56,6 @@ static void *kLLL4Installed = &kLLL4Installed;
 
     [self lll4_installLoginButton];
 
-    /* 内核变化 → 刷卡片 */
     if (!objc_getAssociatedObject(self, kLLL4Ticker)) {
         NSTimer *t = [NSTimer timerWithTimeInterval:0.35 repeats:YES block:^(NSTimer *tm) {
             __strong typeof(w) s = w;
@@ -96,11 +93,9 @@ static void *kLLL4Installed = &kLLL4Installed;
 #pragma mark - 页面
 
 - (void)lll4_showMusicTab {
-    /* 卡片展开：高度给足，不然进度条和控制键会被切掉 */
     self.playerCard.hidden = NO;
     if (self.playerHeight) self.playerHeight.constant = 310;
 
-    /* 旧的第二套控制栏彻底不再出现 */
     self.musicControlBar.hidden = YES;
     self.musicControlBar.alpha = 0;
 
@@ -108,10 +103,8 @@ static void *kLLL4Installed = &kLLL4Installed;
     [mc reloadLocal];
     if ([mc sourceKind] == LLLMusicSourceKindCloud) [mc reloadCloudLiked];
 
-    self.musicSrcSeg.selectedSegmentIndex = ([mc sourceKind] == LLLMusicSourceKindCloud) ? 1 : 0;
-
     [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
-    [self.musict reloadData];
+    [mc syncHostArrays];
     [self lll4_refreshCard];
 
     [self setHeader:@"音乐播放器"
@@ -126,36 +119,55 @@ static void *kLLL4Installed = &kLLL4Installed;
     LLLMusicController *mc = [LLLMusicController shared];
     [mc setSourceKind:k];
 
-    if (k == LLLMusicSourceKindCloud) {
-        if (![LLLCloudMusic shared].loggedIn) {
-            /* 没登录也能用：直接进免登录面板，别再把人挡在门外 */
-            ShowToast(@"未登录 · 可听免费曲目", 1.8, YES, NO);
-            [self lll4_openGuestMusic];
-            [self.musict reloadData];
-            [self lll4_refreshCard];
-            return;
-        }
-        [mc reloadCloudLiked];
+    if (k == LLLMusicSourceKindCloud && ![LLLCloudMusic shared].loggedIn) {
+        /* 未登录也能用：进免登录面板，但同时保留表格可见 */
+        ShowToast(@"未登录 · 可听免费曲目", 1.8, YES, NO);
+        [mc syncHostArrays];
+        [self lll4_refreshCard];
+        [self lll4_openGuestMusic];
+        return;
     }
-    [self.musict reloadData];
+    if (k == LLLMusicSourceKindCloud) [mc reloadCloudLiked];
+
+    [mc syncHostArrays];
     [self lll4_refreshCard];
+    [self setHeader:@"音乐播放器"
+                sub:[NSString stringWithFormat:@"%ld 首 · %@",
+                     (long)[mc rowCount],
+                     (k == LLLMusicSourceKindCloud) ? @"网易云" : @"本地"]];
 }
 
 - (void)lll4_reloadMusicTab {
-    [self.musict reloadData];
+    [[LLLMusicController shared] syncHostArrays];
     [self lll4_refreshCard];
 }
 
 - (void)lll4_musicCellPlay:(UIButton *)sender {
     NSNumber *idx = objc_getAssociatedObject(sender, "idx");
     if (!idx) return;
-    [self lll4_didSelectMusicRow:idx.integerValue];
+    [[LLLMusicController shared] playRow:idx.integerValue];
+    [self lll4_refreshCard];
 }
 
 - (void)lll4_didSelectMusicRow:(NSInteger)row {
     [[LLLMusicController shared] playRow:row];
     [self lll4_refreshCard];
-    [self.musict reloadData];
+}
+
+#pragma mark - 老入口的 4.0 版本
+
+- (void)lll4_playMusicAtIndex:(NSInteger)idx {
+    LLLMusicController *mc = [LLLMusicController shared];
+    if ([mc sourceKind] == LLLMusicSourceKindCloud) [mc playRow:idx];
+    else                                            [mc playRow:idx];
+    [self lll4_refreshCard];
+}
+
+- (void)lll4_stopMusic {
+    [[LLLPlayerCore shared] stop];
+    [LLLMusicIsland attachVideo:nil];
+    self.isPlaying = NO;
+    [self lll4_refreshCard];
 }
 
 #pragma mark - 卡片按键
@@ -216,7 +228,6 @@ static void *kLLL4Installed = &kLLL4Installed;
         [self.modeBtn setTitle:label forState:UIControlStateNormal];
     }
 
-    /* 进度条跟着内核走 */
     double total = core.duration;
     if (total > 0.5) {
         double el = [core currentElapsed];
@@ -233,7 +244,6 @@ static void *kLLL4Installed = &kLLL4Installed;
         self.playerCover.contentMode = UIViewContentModeScaleAspectFill;
     }
 
-    /* 播放中封面转，暂停停 */
     if (self.playerCover) {
         if (playing) {
             if (![self.playerCover.layer animationForKey:@"lll.spin"]) {
@@ -256,8 +266,8 @@ static void *kLLL4Installed = &kLLL4Installed;
 
 - (void)lll4_dataChanged {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self.musict reloadData];
         [self lll4_refreshCard];
+        [self.musict reloadData];
     });
 }
 
