@@ -383,7 +383,8 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     __weak typeof(self) w = self;
     /* 先按 PC 客户端（type=3）要 key，拿不到再退回网页/手机（type=1） */
     __block void (^kick)(NSInteger);
-    kick = ^(NSInteger type) {
+    __weak void (^weakKick)(NSInteger);
+    kick = weakKick = ^(NSInteger type) {
         [LLLCloudMusic.shared getJSON:@"/api/login/qrcode/unikey"
                                params:@{ @"type" : [NSString stringWithFormat:@"%ld", (long)type] }
                                  done:^(id json, NSError *err) {
@@ -396,7 +397,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
                 if (!key) key = json[@"key"];
             }
             if (!key.length) {
-                if (type == 3) { kick(1); return; }
+                if (type == 3) { if (weakKick) weakKick(1); return; }
                 if (s.doneBlock) s.doneBlock(NO, @"拿不到 unikey，检查网络或接口变化");
                 return;
             }
@@ -424,7 +425,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
             });
         }];
     };
-    kick(3);
+    weakKick(3);
 }
 
 - (void)pollOnce {
