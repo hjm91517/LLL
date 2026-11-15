@@ -47,6 +47,7 @@ bbhj_online_FILES = \
     ui/LLLCloudVIP.m \
     ui/LLLGuestMusic.m \
     ui/LLLUnblockSource.m \
+    ui/LLLUnblockServer.m \
     ui/LLLUnblockHook.m \
     ui/LLLGuestPanel.m \
     ui/LLLCloudMusic.m \
