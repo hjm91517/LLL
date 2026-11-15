@@ -99,6 +99,22 @@ static void (^gTapHandler)(void) = nil;
 + (void)onClose:(id)s;
 @end
 
+/* 圆形封面转起来（黑胶感）；非圆形不转 */
+static void LLLSpin(UIView *v, BOOL on) {
+    if (!v) return;
+    if (on) {
+        if ([v.layer animationForKey:@"spin"]) return;
+        CABasicAnimation *a = [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
+        a.fromValue = @0;
+        a.toValue = @(M_PI * 2.0);
+        a.duration = 8.0;
+        a.repeatCount = HUGE_VALF;
+        [v.layer addAnimation:a forKey:@"spin"];
+    } else {
+        [v.layer removeAnimationForKey:@"spin"];
+    }
+}
+
 /* 音量图标用 SF Symbol，不用 emoji */
 static void LLLSetVolIcon(UILabel *l, float v) {
     if (!l) return;
@@ -376,6 +392,14 @@ static void LLLSetVolIcon(UILabel *l, float v) {
     [gCloseBtn addTarget:self action:@selector(onClose:) forControlEvents:UIControlEventTouchUpInside];
     [gPill addSubview:gCloseBtn];
 
+    /* 进度条 / 音量 / 切歌全靠这条桥，装上以后再显示，不然滑条是死的 */
+    @try {
+        MainViewController *host = [MainViewController cloudHost];
+        if ([host respondsToSelector:@selector(installNowPlayingBridge)]) {
+            [host installNowPlayingBridge];
+        }
+    } @catch (__unused NSException *e) { }
+
     [self layoutForExpanded:NO animated:NO];
     [self applyContent];
 
@@ -502,12 +526,21 @@ static NSString *LLLClock(NSTimeInterval t) {
         gArtLg.image = art;
         gArtSm.contentMode = UIViewContentModeScaleAspectFill;
         gArtLg.contentMode = UIViewContentModeScaleAspectFill;
-    } else {
-        gArtSm.image = nil;
-        gArtLg.image = nil;
+    } else if (@available(iOS 13.0, *)) {
+        /* 没有封面也要有音乐图标，不能留个空灰块 */
+        UIImage *ph = [UIImage systemImageNamed:@"music.note"];
+        ph = [ph imageWithTintColor:[UIColor colorWithWhite:0.55 alpha:1]
+                      renderingMode:UIImageRenderingModeAlwaysOriginal];
+        gArtSm.image = ph;
+        gArtLg.image = ph;
+        gArtSm.contentMode = UIViewContentModeCenter;
+        gArtLg.contentMode = UIViewContentModeCenter;
         gArtSm.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
         gArtLg.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
     }
+
+    /* 胶囊封面是圆的 → 播放时转 */
+    LLLSpin(gArtSm, playing && gVidSm == nil);
 
     if (@available(iOS 13.0, *)) {
         UIImageSymbolConfiguration *cfg =

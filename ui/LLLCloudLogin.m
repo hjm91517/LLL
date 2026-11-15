@@ -489,8 +489,17 @@ static WKWebView *gWebLogin = nil;
 
     NSString *pic = song[@"pic"];
     if (pic.length) {
+        __weak typeof(self) wa = self;
         [[LLLCloudMusic shared] loadArtwork:pic done:^(UIImage *img) {
-            if (img) [[LLLNowPlaying shared] updateArtwork:img];
+            if (!img) return;
+            [[LLLNowPlaying shared] updateArtwork:img];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                __strong typeof(wa) sa = wa;
+                if (sa.playerCover) {
+                    sa.playerCover.image = img;
+                    sa.playerCover.contentMode = UIViewContentModeScaleAspectFill;
+                }
+            });
         }];
     }
 

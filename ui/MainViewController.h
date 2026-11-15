@@ -20,6 +20,8 @@
 @property (nonatomic, strong) NSTimer *bgTimer;
 
 @property (nonatomic, strong) NSArray<NSString *> *musicNames, *musicPaths;
+@property (nonatomic, strong) NSArray<NSDictionary *> *cloudSongs;
+@property (nonatomic, strong) UISegmentedControl *musicSrcSeg;
 @property (nonatomic, assign) NSInteger currentMusicIndex;
 @property (nonatomic, assign) BOOL loopModeSingle, shuffleMode, doubleSpeed, isPlaying;
 @property (nonatomic, strong) UIButton *playPauseBtn, *speedBtn, *modeBtn;

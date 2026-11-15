@@ -128,6 +128,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         _pln  = [NSMutableArray new]; _plp  = [NSMutableArray new];
         _plqn = [NSMutableArray new]; _plqp = [NSMutableArray new];
         _musicNames = @[];
+        _cloudSongs = @[];
         _musicPaths = @[];
         _currentMusicIndex = -1;
         _loopModeSingle = NO;
@@ -319,9 +320,22 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     }
 
     [self setupPlayerCard];
+
+    _musicSrcSeg = [[UISegmentedControl alloc] initWithItems:@[@"本地音乐", @"网易云"]];
+    _musicSrcSeg.selectedSegmentIndex = [[NSUserDefaults standardUserDefaults] integerForKey:@"LLL.musicSource"];
+    _musicSrcSeg.selectedSegmentTintColor = LLLAccentColor();
+    _musicSrcSeg.translatesAutoresizingMaskIntoConstraints = NO;
+    [_musicSrcSeg addTarget:self action:@selector(musicSourceChanged:) forControlEvents:UIControlEventValueChanged];
+    [cv addSubview:_musicSrcSeg];
+
     [cv addSubview:_musict];
     [NSLayoutConstraint activateConstraints:@[
-        [_musict.topAnchor constraintEqualToAnchor:_playerCard.bottomAnchor constant:6],
+        [_musicSrcSeg.topAnchor constraintEqualToAnchor:_playerCard.bottomAnchor constant:6],
+        [_musicSrcSeg.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:10],
+        [_musicSrcSeg.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor constant:-10],
+        [_musicSrcSeg.heightAnchor constraintEqualToConstant:32],
+
+        [_musict.topAnchor constraintEqualToAnchor:_musicSrcSeg.bottomAnchor constant:6],
         [_musict.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor],
         [_musict.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor]
     ]];
@@ -712,19 +726,6 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     UIButton *next = [self playerButton:@"forward.fill" size:20 side:44 action:@selector(nextMusic)];
     _playerModeBtn = [self playerButton:@"repeat" size:18 side:44 action:@selector(switchLoopMode)];
 
-    // 网易云入口（登录 / 我喜欢的 / 搜索）
-    _playerCloudBtn = [self playerButton:@"cloud.fill" size:15 side:34 action:@selector(openCloudMusic)];
-    _playerCloudBtn.backgroundColor = [LLLAccentColor() colorWithAlphaComponent:0.28];
-    /* v2.2 用户反馈找不到入口：改为带文字的「网易云」按钮 */
-    [_playerCloudBtn setTitle:@"网易云" forState:UIControlStateNormal];
-    _playerCloudBtn.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
-    [_playerCloudBtn setImage:nil forState:UIControlStateNormal];
-    _playerCloudBtn.layer.cornerRadius = 17;
-    for (NSLayoutConstraint *c in _playerCloudBtn.constraints) {
-        if (c.firstAttribute == NSLayoutAttributeWidth) c.constant = 78;
-    }
-    [_playerCard addSubview:_playerCloudBtn];
-
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[prev, _playerPlayBtn, next, _playerModeBtn]];
     row.translatesAutoresizingMaskIntoConstraints = NO;
     row.axis = UILayoutConstraintAxisHorizontal;
@@ -775,10 +776,8 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         [_playerCover.heightAnchor constraintEqualToConstant:84],
 
         [_playerTitle.leadingAnchor constraintEqualToAnchor:_playerCover.trailingAnchor constant:14],
-        [_playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:_playerCloudBtn.leadingAnchor constant:-10],
+        [_playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:_playerCard.trailingAnchor constant:-16],
 
-        [_playerCloudBtn.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-16],
-        [_playerCloudBtn.topAnchor constraintEqualToAnchor:_playerCard.topAnchor constant:18],
         [_playerTitle.topAnchor constraintEqualToAnchor:_playerCover.topAnchor constant:8],
 
         [_playerArtist.leadingAnchor constraintEqualToAnchor:_playerTitle.leadingAnchor],
@@ -945,9 +944,6 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     if (_bars) {
         _bars.barColor = accent;
         [_bars setNeedsDisplay];
-    }
-    if (_playerCloudBtn) {
-        _playerCloudBtn.backgroundColor = [accent colorWithAlphaComponent:0.28];
     }
     if (_playerPlayBtn) {
         _playerPlayBtn.backgroundColor = accent;
@@ -1139,6 +1135,37 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [self switchTo:self.pqt hide:@[self.st, self.qt, self.pt, self.musict] bar:self.pab];
 }
 
+- (void)musicSourceChanged:(UISegmentedControl *)seg {
+    [[NSUserDefaults standardUserDefaults] setInteger:seg.selectedSegmentIndex forKey:@"LLL.musicSource"];
+    [self reloadMusicTab];
+}
+
+- (void)reloadMusicTab {
+    if (!_musicSrcSeg) return;
+    if (_musicSrcSeg.selectedSegmentIndex == 0) {
+        [self reloadMusicData];
+        return;
+    }
+    if (![LLLCloudMusic shared].loggedIn) {
+        ShowToast(@"先登录网易云", 1.6, YES, YES);
+        self.cloudSongs = @[];
+        [self.musict reloadData];
+        return;
+    }
+    [self setHeader:@"音乐播放器" sub:@"正在拉取「我喜欢的音乐」…"];
+    __weak typeof(self) w = self;
+    [[LLLCloudMusic shared] loadLikedSongs:^(NSArray<NSDictionary *> *songs, NSString *err) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (!s) return;
+            s.cloudSongs = songs ?: @[];
+            [s setHeader:@"音乐播放器" sub:[NSString stringWithFormat:@"网易云 · %lu 首", (unsigned long)s.cloudSongs.count]];
+            [s.musict reloadData];
+            if (err.length) ShowToast(err, 2.0, YES, YES);
+        });
+    }];
+}
+
 - (void)showMusicTab {
     lllLog(@"进入音乐页 card=%@ btn=%@", _playerCard, _playerCloudBtn);
     [self setHeader:@"音乐播放器" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
@@ -1153,6 +1180,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     self.musicControlBar.hidden = YES;
     self.musicControlBar.alpha = 0;
 
+    [self reloadMusicTab];
     [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
 
     // 切换之后再记一次，这次是真实布局状态
@@ -1500,7 +1528,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     if (tv == self.qt) return self.qn.count;
     if (tv == self.pt) return self.pln.count;
     if (tv == self.pqt) return self.plqn.count;
-    if (tv == self.musict) return self.musicNames.count;
+    if (tv == self.musict) return (_musicSrcSeg.selectedSegmentIndex == 1) ? self.cloudSongs.count : self.musicNames.count;
     return 0;
 }
 
@@ -1542,9 +1570,16 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     }
     if (tv == self.musict) {
         PackCell *c = [tv dequeueReusableCellWithIdentifier:@"music" forIndexPath:ip];
-        c.title.text = self.musicNames[ip.row];
+        BOOL cloud = (_musicSrcSeg.selectedSegmentIndex == 1);
+        if (cloud) {
+            NSDictionary *sg = (ip.row < (NSInteger)self.cloudSongs.count) ? self.cloudSongs[ip.row] : nil;
+            c.title.text = sg[@"name"] ?: @"";
+            c.sub.text = sg[@"artist"] ?: @"网易云音乐";
+        } else {
+            c.title.text = self.musicNames[ip.row];
+            c.sub.text = @"音频文件";
+        }
         c.title.adjustsFontSizeToFitWidth = YES; c.title.minimumScaleFactor = 0.6;
-        c.sub.text = @"音频文件";
         if (@available(iOS 13.0, *)) { c.icon.image = [UIImage systemImageNamed:@"music.note"]; c.icon.tintColor = kAccentGreen; c.icon.contentMode = UIViewContentModeCenter; }
         [c.btn removeTarget:self action:NULL forControlEvents:UIControlEventTouchUpInside];
         [c.btn setImage:[UIImage systemImageNamed:@"play.circle.fill"] forState:UIControlStateNormal];
@@ -1556,7 +1591,14 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 }
 
 - (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
-    if (tv == self.musict) { [self playMusicAtIndex:ip.row]; [tv deselectRowAtIndexPath:ip animated:YES]; }
+    if (tv == self.musict) {
+        if (_musicSrcSeg.selectedSegmentIndex == 1) {
+            if (ip.row < (NSInteger)self.cloudSongs.count) [self playCloudSong:self.cloudSongs[ip.row]];
+        } else {
+            [self playMusicAtIndex:ip.row];
+        }
+        [tv deselectRowAtIndexPath:ip animated:YES];
+    }
 }
 
 - (CGFloat)tableView:(UITableView *)tv heightForRowAtIndexPath:(NSIndexPath *)ip {
