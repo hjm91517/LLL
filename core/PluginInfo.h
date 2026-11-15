@@ -1,4 +1,4 @@
-#define kPluginVersion @"3.9"
+#define kPluginVersion @"3.10"
 
 #define kPluginFeatures @[ \
     @"• bbhj online 1.0", \
@@ -16,6 +16,7 @@
     @"• 队列编辑与拖拽排序", \
     @"• 打击特效：平砍粒子 + 受击着色（可调色/尺寸/数量）", \
     @"• 3.6：音乐页回到原生 UI，Folia 前端整包移除（dylib 从 12.9MB 回到 1.3MB）", \
+    @"• 3.10：登录相关请求改用客户端 UA + os=ios/appver，网页 UA 会被 401 ENC", \
     @"• 3.9：密码登录已被网易关闭（503 ursToken），改成手机验证码登录", \
     @"• 3.9：扫码遇到「切换其他登录方式/升级新版本」直接停止轮询并提示", \
     @"• 3.8：手机号密码改用 eapi（weapi 已返回空），Cookie 校验不再假成功", \

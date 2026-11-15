@@ -23,6 +23,11 @@ static NSInteger gQRType = 3;
 static NSString * const kBase = @"https://music.163.com";
 static NSString * const kUA   = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
                                 @"AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+/* 网易按客户端识别：网页 UA 打 /api/login/* 直接 401 无权限访问. ENC。
+   实测这对 UA+cookie 能拿到正常业务码（503 验证码错误 / 801 等待扫码）。 */
+static NSString * const kClientUA = @"NeteaseMusic/9.1.60.240711141503(8009060);"
+                                    @"Dalvik/2.1.0 (Linux; U; Android 11)";
+static NSString * const kClientCookie = @"os=ios; appver=9.1.60";
 static NSString * const kIV   = @"0102030405060708";
 static NSString * const kRsaN = @"00e0b509f6259df8642dbc35662901477df22677ec152b5ff68ace615bb7b7251523"
                                 @"ab17a876aea8a5aa76d2e417629ec4ee341f56135fccf695280104e0312ecbda92557c9387011"
@@ -251,6 +256,9 @@ static NSString *LLLRandomKey(void) {
 - (void)getJSON:(NSString *)path
          params:(NSDictionary<NSString *, NSString *> *)params
            done:(void (^)(id json, NSError *err))done;
+- (void)getClientJSON:(NSString *)path
+               params:(NSDictionary<NSString *, NSString *> *)params
+                 done:(void (^)(id json, NSError *err))done;
 - (void)postEapi:(NSString *)path
           params:(NSDictionary *)params
             done:(void (^)(id json, NSError *err))done;
@@ -373,6 +381,36 @@ static NSString *LLLRandomKey(void) {
     }] resume];
 }
 
+/* 客户端 UA 的 GET：扫码 / 短信这些接口用网页 UA 会被判无权限 */
+- (void)getClientJSON:(NSString *)path
+               params:(NSDictionary<NSString *, NSString *> *)params
+                 done:(void (^)(id json, NSError *err))done {
+    NSMutableString *url = [NSMutableString stringWithFormat:@"%@%@", kBase, path];
+    if (params.count) {
+        [url appendString:@"?"];
+        __block NSUInteger i = 0;
+        [params enumerateKeysAndObjectsUsingBlock:^(NSString *k, NSString *v, BOOL *stop) {
+            if (i++) [url appendString:@"&"];
+            [url appendFormat:@"%@=%@", LLLQueryEncode(k), LLLQueryEncode(v)];
+        }];
+    }
+    NSURL *u = [NSURL URLWithString:url];
+    if (!u) { if (done) done(nil, nil); return; }
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:u];
+    [req setValue:kClientUA forHTTPHeaderField:@"User-Agent"];
+    [req setValue:kBase forHTTPHeaderField:@"Referer"];
+    if (![self hasCookie]) [req setValue:kClientCookie forHTTPHeaderField:@"Cookie"];
+
+    [[_session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        if (err) { if (done) done(nil, err); return; }
+        if (!data.length) { if (done) done(nil, nil); return; }
+        NSError *je = nil;
+        id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
+        if (done) done(obj, je);
+    }] resume];
+}
+
 - (void)postWeapi:(NSString *)path
            params:(NSDictionary *)params
              done:(void (^)(id json, NSError *err))done {
@@ -439,7 +477,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
 /* 要 unikey：3 = PC 客户端码，1 = 网页/手机码。type=3 拿不到就自动退 1 */
 - (void)requestQRKey:(NSInteger)type done:(void (^)(NSString *key, NSInteger used))done {
     __weak typeof(self) w = self;
-    [self getJSON:@"/api/login/qrcode/unikey"
+    [self getClientJSON:@"/api/login/qrcode/unikey"
            params:@{ @"type" : [NSString stringWithFormat:@"%ld", (long)type] }
              done:^(id json, NSError *err) {
         __strong typeof(w) s = w;
@@ -505,7 +543,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     }
 
     __weak typeof(self) w = self;
-    [self getJSON:@"/api/login/qrcode/client/login"
+    [self getClientJSON:@"/api/login/qrcode/client/login"
            params:@{ @"key" : _uniKey, @"type" : [NSString stringWithFormat:@"%ld", (long)gQRType] }
              done:^(id json, NSError *err) {
         __strong typeof(w) s = w;
@@ -554,8 +592,9 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = @"POST";
     [req setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
-    [req setValue:kUA forHTTPHeaderField:@"User-Agent"];
+    [req setValue:kClientUA forHTTPHeaderField:@"User-Agent"];
     [req setValue:kBase forHTTPHeaderField:@"Referer"];
+    if (![self hasCookie]) [req setValue:kClientCookie forHTTPHeaderField:@"Cookie"];
     req.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
 
     [[_session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
@@ -572,7 +611,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     if (p.length < 6) { if (done) done(NO, @"手机号没填完"); return; }
 
     __weak typeof(self) w = self;
-    [self getJSON:@"/api/sms/captcha/sent"
+    [self getClientJSON:@"/api/sms/captcha/sent"
            params:@{ @"cellphone" : p, @"ctcode" : @"86" }
              done:^(id json, NSError *err) {
         __strong typeof(w) s = w;
