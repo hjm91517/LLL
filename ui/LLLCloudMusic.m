@@ -103,6 +103,24 @@ static NSData *LLLAES128(NSData *plain, NSString *key) {
     return res;
 }
 
+/* eapi：AES-128-ECB，固定 key e82ckenh8dichen8 */
+static NSData *LLLAESECB(NSData *plain) {
+    static NSData *k;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ k = [@"e82ckenh8dichen8" dataUsingEncoding:NSUTF8StringEncoding]; });
+    size_t outLen = plain.length + kCCBlockSizeAES128;
+    void *out = malloc(outLen);
+    if (!out) return nil;
+    size_t moved = 0;
+    CCCryptorStatus st = CCCrypt(kCCEncrypt, kCCAlgorithmAES,
+                                 kCCOptionECBMode | kCCOptionPKCS7Padding,
+                                 k.bytes, kCCKeySizeAES128, NULL,
+                                 plain.bytes, plain.length, out, outLen, &moved);
+    NSData *res = (st == kCCSuccess) ? [NSData dataWithBytes:out length:moved] : nil;
+    free(out);
+    return res;
+}
+
 static NSMutableData *LLLTLV(uint8_t tag, NSData *val) {
     NSMutableData *d = [NSMutableData data];
     [d appendBytes:&tag length:1];
@@ -233,6 +251,9 @@ static NSString *LLLRandomKey(void) {
 - (void)getJSON:(NSString *)path
          params:(NSDictionary<NSString *, NSString *> *)params
            done:(void (^)(id json, NSError *err))done;
+- (void)postEapi:(NSString *)path
+          params:(NSDictionary *)params
+            done:(void (^)(id json, NSError *err))done;
 - (void)postWeapi:(NSString *)path
            params:(NSDictionary *)params
              done:(void (^)(id json, NSError *err))done;
@@ -306,6 +327,46 @@ static NSString *LLLRandomKey(void) {
 
     [[_session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
         if (err || !data.length) { if (done) done(nil, err); return; }
+        NSError *je = nil;
+        id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
+        if (done) done(obj, je);
+    }] resume];
+}
+
+- (void)postEapi:(NSString *)path
+          params:(NSDictionary *)params
+            done:(void (^)(id json, NSError *err))done {
+    NSData *jd = [NSJSONSerialization dataWithJSONObject:params ?: @{} options:0 error:nil];
+    NSString *text = [[NSString alloc] initWithData:jd encoding:NSUTF8StringEncoding];
+    if (!text) { if (done) done(nil, [NSError errorWithDomain:@"LLLCloud" code:-4 userInfo:nil]); return; }
+
+    NSString *digestSrc = [NSString stringWithFormat:@"nobody%@use%@md5forencrypt", path, text];
+    NSString *digest = LLLMD5Hex(digestSrc);
+    NSString *payload = [NSString stringWithFormat:@"%@-36cd479b6b5-%@-36cd479b6b5-%@", path, text, digest];
+
+    NSData *enc = LLLAESECB([payload dataUsingEncoding:NSUTF8StringEncoding]);
+    if (!enc.length) { if (done) done(nil, [NSError errorWithDomain:@"LLLCloud" code:-5 userInfo:nil]); return; }
+
+    NSMutableString *hex = [NSMutableString stringWithCapacity:enc.length * 2];
+    const uint8_t *p = enc.bytes;
+    for (NSUInteger i = 0; i < enc.length; i++) [hex appendFormat:@"%02X", p[i]];
+
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://interface.music.163.com%@", path]];
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+    [req setValue:@"NeteaseMusic/9.1.60.240711141503(8009060);Dalvik/2.1.0 (Linux; U; Android 11)"
+           forHTTPHeaderField:@"User-Agent"];
+    [req setValue:kBase forHTTPHeaderField:@"Referer"];
+    [req setValue:@"os=ios; appver=9.1.60" forHTTPHeaderField:@"Cookie"];
+    req.HTTPBody = [[NSString stringWithFormat:@"params=%@", hex] dataUsingEncoding:NSUTF8StringEncoding];
+
+    [[_session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        if (err) { if (done) done(nil, err); return; }
+        if (!data.length) {
+            if (done) done(nil, [NSError errorWithDomain:@"LLLCloud" code:-6 userInfo:nil]);
+            return;
+        }
         NSError *je = nil;
         id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
         if (done) done(obj, je);
@@ -457,13 +518,17 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
             msg = json[@"message"];
         }
 
+        /* 实测语义（2026）：800 二维码不存在/过期，801 等待扫码，
+           802 已扫码待确认，803 授权成功。旧版把 800/801/802 整体错位了一位，
+           所以没扫就显示"已扫码"、一扫码又显示"已取消"。 */
         if (code == 800) {
-            if (s.progressBlock) s.progressBlock(nil, @"等待扫码…");
-        } else if (code == 801) {
-            if (s.progressBlock) s.progressBlock(nil, @"已扫码，请在手机上点确认");
-        } else if (code == 802) {
             [s cancelLogin];
-            if (s.doneBlock) s.doneBlock(NO, @"已在手机上取消");
+            if (s.progressBlock) s.progressBlock(nil, @"二维码已过期，重开一次");
+            if (s.doneBlock) s.doneBlock(NO, @"二维码已过期");
+        } else if (code == 801) {
+            if (s.progressBlock) s.progressBlock(nil, @"等待扫码…");
+        } else if (code == 802) {
+            if (s.progressBlock) s.progressBlock(nil, @"已扫码，请在手机上点确认");
         } else if (code == 803) {
             [s cancelLogin];
             [NSThread sleepForTimeInterval:0.4];
@@ -500,16 +565,17 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     };
 
     __weak typeof(self) w = self;
-    [self postWeapi:@"/weapi/login/cellphone" params:params done:^(id json, NSError *err) {
+    [self postEapi:@"/api/login/cellphone" params:params done:^(id json, NSError *err) {
         __strong typeof(w) s = w;
         if (!s) return;
 
         NSInteger code = [json isKindOfClass:NSDictionary.class] ? [json[@"code"] integerValue] : -1;
-        lllLog(@"网易云 weapi 登录 code=%ld msg=%@", (long)code,
+        lllLog(@"网易云 eapi 登录 code=%ld msg=%@", (long)code,
                [json isKindOfClass:NSDictionary.class] ? json[@"message"] : @"");
         if (code != 200) {
             NSString *msg = [json isKindOfClass:NSDictionary.class] ? json[@"message"] : nil;
-            if (err) msg = @"网络错误，稍后再试";
+            if (!msg.length && [json isKindOfClass:NSDictionary.class]) msg = json[@"msg"];
+            if (err) msg = [NSString stringWithFormat:@"网络错误：%@", err.localizedDescription ?: @"连接失败"];
             if (done) done(NO, msg.length ? msg : @"登录失败，账号或密码不对");
             return;
         }
@@ -542,7 +608,7 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
         NSDictionary *props = @{
             NSHTTPCookieName    : name,
             NSHTTPCookieValue   : val,
-            NSHTTPCookieDomain  : @".music.163.com",
+            NSHTTPCookieDomain  : @"music.163.com",
             NSHTTPCookiePath    : @"/",
             NSHTTPCookieSecure  : @"TRUE",
         };
@@ -578,7 +644,8 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
                 ok = (s.uid != 0);
             }
         }
-        if (done) done(ok || [s hasCookie], ok ? nil : @"拿不到账号信息");
+        /* 以前这里 ok||hasCookie 会把"cookie 在但已失效"判成登录成功 → 假成功 */
+        if (done) done(ok, ok ? nil : @"账号信息拿不到，Cookie 可能已失效");
     }];
 }
 

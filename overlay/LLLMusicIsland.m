@@ -12,6 +12,7 @@
 #import <math.h>
 #import "LLLAnim.h"
 #import "AppTheme.h"
+#import <AVFoundation/AVFoundation.h>
 
 static const CGFloat kCompactW = 218, kCompactH = 38;
 static const CGFloat kExpandW  = 372, kExpandH  = 248;
@@ -34,6 +35,7 @@ static UISlider    *gSeekSld = nil, *gVolSld = nil;
 static UILabel     *gVolIcon = nil, *gCacheLabel = nil;
 static UIButton    *gCloudBtn = nil, *gCacheBtn = nil;
 static BOOL         gSeeking = NO, gVolDragging = NO;
+static AVPlayerLayer *gVidSm = nil, *gVidLg = nil;   /* 本地 mp4/mov 时把画面投到封面位 */
 
 static NSTimer     *gTick = nil, *gCollapseTimer = nil;
 static BOOL         gShowing = NO, gExpanded = NO, gBuilding = NO;
@@ -82,6 +84,7 @@ static void (^gTapHandler)(void) = nil;
 + (void)applyContent;
 + (void)scheduleCollapse;
 + (void)showIsland;
++ (void)attachVideo:(nullable AVPlayer *)player;
 + (CGRect)pillRectForWidth:(CGFloat)w height:(CGFloat)h;
 + (void)onTap:(UIGestureRecognizer *)g;
 + (void)onLongPress:(UILongPressGestureRecognizer *)g;
@@ -637,6 +640,30 @@ static NSString *LLLClock(NSTimeInterval t) {
     });
 }
 
+/* 本地视频：同一个 AVPlayer 可以挂多个 AVPlayerLayer，封面位直接出画面 */
++ (void)attachVideo:(AVPlayer *)player {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            [gVidSm removeFromSuperlayer]; gVidSm = nil;
+            [gVidLg removeFromSuperlayer]; gVidLg = nil;
+            if (!player || !gArtSm || !gArtLg) return;
+
+            gVidSm = [AVPlayerLayer playerLayerWithPlayer:player];
+            gVidSm.videoGravity = AVLayerVideoGravityResizeAspectFill;
+            gVidSm.frame = gArtSm.bounds;
+            [gArtSm.layer addSublayer:gVidSm];
+
+            gVidLg = [AVPlayerLayer playerLayerWithPlayer:player];
+            gVidLg.videoGravity = AVLayerVideoGravityResizeAspectFill;
+            gVidLg.frame = gArtLg.bounds;
+            [gArtLg.layer addSublayer:gVidLg];
+
+            gArtSm.image = nil;
+            gArtLg.image = nil;
+        } @catch (__unused NSException *e) { }
+    });
+}
+
 + (void)refresh {
     dispatch_async(dispatch_get_main_queue(), ^{
         @try { if (gPill) [self applyContent]; }
@@ -681,8 +708,16 @@ static NSString *LLLClock(NSTimeInterval t) {
 
 /* v2.2：独立音量 —— 只作用于音乐播放器（applyVolume），不影响系统音量 */
 + (void)volChanged:(UISlider *)sld {
-    [[LLLNowPlaying shared] send:LLLNPCommandVolume value:(double)sld.value];
-    LLLSetVolIcon(gVolIcon, (float)sld.value);
+    double v = sld.value;
+    [[NSUserDefaults standardUserDefaults] setDouble:v forKey:@"LLL.volume"];
+    LLLSetVolIcon(gVolIcon, (float)v);
+    [[LLLNowPlaying shared] send:LLLNPCommandVolume value:v];
+
+    /* 没播过网易云时命令桥是空的，滑条就成了摆设；这里直接找宿主应用音量 */
+    MainViewController *host = [MainViewController cloudHost];
+    if ([host respondsToSelector:@selector(applyVolume)]) {
+        [host performSelector:@selector(applyVolume)];
+    }
 }
 
 + (void)onCacheTap:(id)sender {

@@ -1400,6 +1400,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         cur = CMTimeGetSeconds(self.cloudPlayer.currentTime);
     }
     if (total > 0.01 && !isnan(total)) {
+        [[LLLNowPlaying shared] updateElapsed:cur duration:total];
         if (_progressSlider && !_progressSlider.isTracking)
             _progressSlider.value = (float)(cur / total);
         if (_playerProgress && !_playerProgress.isTracking)

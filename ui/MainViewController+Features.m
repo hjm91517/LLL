@@ -52,11 +52,22 @@ static void (^gLLLCloseCloudCard)(void) = nil;
         [self.playerCover.layer addAnimation:flip forKey:@"flip"];
     }
 
+    /* 同步到灵动岛：标题/播放态/时长都走 LLLNowPlaying，岛只读它 */
+    NSString *showTitle = self.musicNames.count > (NSUInteger)idx ? self.musicNames[(NSUInteger)idx] : path.lastPathComponent;
+    [LLLMusicIsland attachVideo:self.videoMusicPlayer];
+    [[LLLNowPlaying shared] beginTrack:showTitle
+                                artist:(self.videoMusicPlayer ? @"本地视频" : @"本地音乐")
+                               artwork:nil
+                              duration:(self.audioPlayer ? self.audioPlayer.duration : 0)
+                               elapsed:0];
+
     [self updateMusicUI];
     ShowToast([NSString stringWithFormat:@"正在播放: %@", self.musicNames[idx]], 2, YES, NO);
 }
 
 - (void)stopMusic {
+    [LLLMusicIsland attachVideo:nil];
+    [[LLLNowPlaying shared] stop];
     [self.audioPlayer stop];
     self.audioPlayer = nil;
     if (self.videoMusicPlayer) {

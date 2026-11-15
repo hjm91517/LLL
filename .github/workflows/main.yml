@@ -78,6 +78,13 @@ jobs:
           VER=$(sed -n 's/.*kPluginVersion @"\([^"]*\)".*/\1/p' core/PluginInfo.h | head -1)
           [ -z "$VER" ] && VER=0.0
           cp -f dist/bbhj_online.dylib "dist/bbhj-online-$VER.dylib"
+          # 安装说明塞进包里，别让人拿到 zip 不知道放哪
+          cat > "dist/安装说明.txt" <<TXT
+LLL $VER
+1. 删掉 Frameworks/ 下所有旧的 MaterialPackManager*.dylib
+2. 只放一份 bbhj_online.dylib（或 bbhj-online-$VER.dylib，内容一样）
+3. 重签 / 注入后启动游戏
+TXT
           ( cd dist && zip -qry "LLL-$VER-dylib.zip" . )
           ls -la dist
 

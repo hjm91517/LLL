@@ -4,6 +4,7 @@
 //
 
 #import <UIKit/UIKit.h>
+#import <AVFoundation/AVFoundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -24,6 +25,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// v2.2 缓存清理状态合并显示（CacheCleaner 调用，不再自建第二个胶囊）
 + (void)showCacheStatus:(nullable NSString *)text count:(NSUInteger)count isError:(BOOL)isError;
+
+/// 本地 mp4/mov：把播放器画面投到胶囊/展开态的封面位；传 nil 清掉
++ (void)attachVideo:(nullable AVPlayer *)player;
 
 /// 重新读一次 LLLNowPlaying 并刷新
 + (void)refresh;
