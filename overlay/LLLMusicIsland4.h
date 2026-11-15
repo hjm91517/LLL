@@ -17,7 +17,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 岛上「网易云」键的回调（登录面板入口）
 + (void)lll4_setCloudTapHandler:(nullable void (^)(void))handler;
-+ (void)lll4_refreshCloudTitle;
+
+/// 把「登录 / 模式」两颗键挂到控制行；返回是否成功
++ (BOOL)lll4_attachButtonsToPill:(nullable UIView *)pill;
+
+/// 文案刷新
++ (void)lll4_refreshModeButton;
++ (void)lll4_refreshLoginButton;
 
 @end
 
