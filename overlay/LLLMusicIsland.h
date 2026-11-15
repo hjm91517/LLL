@@ -1,6 +1,7 @@
 //
 //  LLLMusicIsland.h
 //  灵动岛：收起是胶囊（封面 + 歌名 + 波形），点开是播放面板（进度 + 上一首/播放/下一首）
+//  4.0：封面强制取网易云曲图；控制全部转给 LLLPlayerCore，不再各走一套。
 //
 
 #import <UIKit/UIKit.h>
@@ -10,7 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface LLLMusicIsland : NSObject
 
-/// 兼容旧调用：直接给歌名。歌曲信息齐全时请用 LLLNowPlaying 上报。
+/// 兼容旧调用：直接给歌名。歌曲信息齐全时请用 LLLNowPlaying / LLLPlayerCore 上报。
 + (void)updateTitle:(nullable NSString *)title playing:(BOOL)playing;
 
 /// 立即收起并隐藏
@@ -23,14 +24,19 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)toggleExpanded;
 + (void)setExpanded:(BOOL)expanded;
 
-/// v2.2 缓存清理状态合并显示（CacheCleaner 调用，不再自建第二个胶囊）
+/// 缓存清理状态合并显示
 + (void)showCacheStatus:(nullable NSString *)text count:(NSUInteger)count isError:(BOOL)isError;
 
 /// 本地 mp4/mov：把播放器画面投到胶囊/展开态的封面位；传 nil 清掉
 + (void)attachVideo:(nullable AVPlayer *)player;
 
-/// 重新读一次 LLLNowPlaying 并刷新
+/// 重新读一次状态并刷新
 + (void)refresh;
+
+/// 4.0：网易云登录入口（展开态第二行按钮）加到岛上，点击调 openLoginBlock
++ (void)setCloudLoginHandler:(nullable void (^)(void))handler;
+/// 登录态变化后刷新按钮文案
++ (void)refreshCloudButton;
 
 @end
 
