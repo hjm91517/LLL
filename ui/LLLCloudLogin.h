@@ -1,9 +1,7 @@
 //
 //  ui/LLLCloudLogin.h  — 4.0
-//  网易云入口：四种登录方式 + 队列播放（全部转 LLLPlayerCore）
-//
-//  说明：installNowPlayingBridge 是 3.12 留下的入口，LLLMusicIsland.m 里会调它。
-//  4.0 把它转发到 LLLIslandCoreBridge，声明必须留在这里，否则岛那边编不过。
+//  只留"别人要调"的接口。列表相关方法（showLikedSongs 等）
+//  在 +Features 里已有实现，不在这里再声明，避免重复实现冲突。
 //
 
 #import "MainViewController.h"
@@ -23,7 +21,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)openCloudMusic;
 - (void)presentLoginChooser;
 
-/// 4.0：播放交给内核，这里只负责把歌塞进队列再起播
+/// 4.0：播放交给内核
 - (void)playCloudSong:(NSDictionary *)song;
 - (void)setCloudQueue:(NSArray<NSDictionary *> *)songs;
 - (void)cloudStep:(NSInteger)delta;
@@ -43,13 +41,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)loginHint:(NSString *)text;
 - (void)loginDone:(BOOL)ok msg:(NSString *)msg;
-
-#pragma mark - 列表
-
-- (void)showLikedSongs;
-- (void)showDailyRecommend;
-- (void)searchCloudMusic;
-- (void)doCloudSearch;
 
 @end
 
