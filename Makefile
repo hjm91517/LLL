@@ -29,6 +29,8 @@ bbhj_online_FILES = \
     overlay/LLLIslandCoreBridge.m \
     overlay/LLLMusicIsland.m \
     overlay/LLLMusicIsland4.m \
+    overlay/LLLMusicIsland4_Compat.m \
+    overlay/LLLMusicIslandBridge4.m \
     ui/MainViewController.m \
     ui/MainViewController+SettingsBackground.m \
     ui/MainViewController+Features.m \
