@@ -1,12 +1,14 @@
 //
 //  ui/LLLGuestPanel.m
-//  免登录入口：搜索 + 飙升榜 + 每日推荐（登录后才有）。
-//  不需要账号即可打开、搜索、点播免费曲目。
+//  免登录入口：搜索 + 飙升榜。不需要账号即可打开、搜索、点播免费曲目。
 //
 
 #import <UIKit/UIKit.h>
 #import "MainViewController.h"
-#import "MainViewController+Music4.h"
+#import "MainViewController+Music4.h"        /* lll4_refreshCard */
+#import "MainViewController+MusicUI4.h"      /* 免登录面板自身的方法声明 */
+#import "MainViewController+CloudLists4.h"   /* showLikedSongs */
+#import "LLLCloudLogin.h"                    /* presentLoginChooser */
 #import "LLLGuestMusic.h"
 #import "LLLMusicController.h"
 #import "LLLCloudMusic.h"
@@ -21,30 +23,37 @@ static void (^gGuestClose)(void) = nil;
 
 /// 第一层：免登录菜单
 - (void)lll4_openGuestMusic {
-    [LLLShowSheet(@"网易云 · 免登录", [LLLGuestMusic capabilityNote],
-                  @[ @"搜索歌曲", @"云音乐飙升榜", @"我喜欢的音乐（需登录）", @"登录账号" ], NO,
-                  ^(NSInteger idx) {
-        if (idx == 0) [self lll4_guestSearch];
-        else if (idx == 1) [self lll4_guestTopList];
-        else if (idx == 2) [self showLikedSongs];
-        else [self presentLoginChooser];
-    })];
+    __weak typeof(self) w = self;
+    LLLShowSheet(@"网易云 · 免登录", [LLLGuestMusic capabilityNote],
+                 @[ @"搜索歌曲", @"云音乐飙升榜", @"我喜欢的音乐（需登录）", @"登录账号" ], NO,
+                 ^(NSInteger idx) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+        if (idx == 0) [s lll4_guestSearch];
+        else if (idx == 1) [s lll4_guestTopList];
+        else if (idx == 2) [s showLikedSongs];
+        else [s presentLoginChooser];
+    });
 }
 
 - (void)lll4_guestSearch {
+    __weak typeof(self) w = self;
     LLLShowCustomCard(320, 200, ^(UIView *card, void (^close)(void)) {
-        gGuestClose = [close copy];
-        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
-        card.frame = CGRectMake(0, 0, w, 156);
+        __strong typeof(w) s = w;
+        if (!s) return;
 
-        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 16, w - 32, 22)];
+        gGuestClose = [close copy];
+        CGFloat cw = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
+        card.frame = CGRectMake(0, 0, cw, 156);
+
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 16, cw - 32, 22)];
         t.text = @"搜索（免登录）";
         t.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
         t.textColor = UIColor.whiteColor;
         t.textAlignment = NSTextAlignmentCenter;
         [card addSubview:t];
 
-        UITextField *f = [[UITextField alloc] initWithFrame:CGRectMake(16, 50, w - 32, 38)];
+        UITextField *f = [[UITextField alloc] initWithFrame:CGRectMake(16, 50, cw - 32, 38)];
         f.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
         f.layer.cornerRadius = 10;
         f.textColor = UIColor.whiteColor;
@@ -59,13 +68,14 @@ static void (^gGuestClose)(void) = nil;
         gGuestField = f;
 
         UIButton *go = [UIButton buttonWithType:UIButtonTypeSystem];
-        go.frame = CGRectMake(16, 98, w - 32, 42);
+        go.frame = CGRectMake(16, 98, cw - 32, 42);
         go.backgroundColor = LLLAccentColor();
         go.layer.cornerRadius = 12;
         [go setTitle:@"搜索" forState:UIControlStateNormal];
         [go setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
         go.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
-        [go addTarget:self action:@selector(lll4_doGuestSearch) forControlEvents:UIControlEventTouchUpInside];
+        [go addTarget:s action:@selector(lll4_doGuestSearch)
+     forControlEvents:UIControlEventTouchUpInside];
         [card addSubview:go];
     });
 }
