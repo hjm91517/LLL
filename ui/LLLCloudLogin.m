@@ -114,7 +114,7 @@ static MainViewController *gCloudHostOwned = nil;
 }
 
 - (void)loginDone:(BOOL)ok msg:(NSString *)msg {
-    ￼dispatch_async(dispatch_get_main_queue(), ^{
+    dispatch_async(dispatch_get_main_queue(), ^{
         [self dismissCloudLoginCard];
         gPhoneField = nil; gCodeField = nil; gSendBtn = nil; gCookieView = nil; gLoginHint = nil;
         NSString *shown = msg.length ? msg : (ok ? @"登录成功" : @"登录失败");
