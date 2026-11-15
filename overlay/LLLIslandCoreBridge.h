@@ -1,7 +1,7 @@
 //
-//  LLLIslandCoreBridge.h
-//  灵动岛 ↔ LLLPlayerCore 的桥：岛上所有按键都只调这里，不直接摸播放器。
-//  这样「卡片按钮不管用 / 顺序播放失效」这类问题只可能出现在一处。
+//  overlay/LLLIslandCoreBridge.h
+//  灵动岛 ↔ LLLPlayerCore 的桥。
+//  岛上所有按键都只调这里，不直接摸播放器 —— 出问题只可能在一处。
 //
 
 #import <Foundation/Foundation.h>
@@ -16,7 +16,6 @@ NS_ASSUME_NONNULL_BEGIN
 /// 装上命令桥（幂等）。核心状态变化会自动同步到 LLLNowPlaying。
 - (void)install;
 
-/// 岛上的播放/暂停
 - (void)togglePlayPause;
 - (void)playNext;
 - (void)playPrevious;
