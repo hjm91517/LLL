@@ -3,8 +3,8 @@
 //
 //  分类实现，全部方法带 lll4 前缀，不污染主 @implementation。
 //  · 岛事件接管：播放/上一首/下一首/模式/网易云 → 桥接层 → LLLPlayerCore
-//  · 网易云封面兜底拉取（缺图时异步补）
-//  · 4.0 新按键的挂载：login / mode，由 buildIfNeeded 之后调用 lll4_attachButtons
+//  · 网易云封面兜底拉取
+//  · 4.0 新按键挂载：登录 / 模式
 //
 
 #import <UIKit/UIKit.h>
@@ -94,7 +94,6 @@ static BOOL gButtonsAttached = NO;
 
 #pragma mark - 按键挂载
 
-/// 在岛建好之后，把「登录」「模式」两颗键挂到控制行
 + (BOOL)lll4_attachButtonsToPill:(UIView *)pill {
     if (gButtonsAttached || !pill) return gButtonsAttached;
 
@@ -117,13 +116,12 @@ static BOOL gButtonsAttached = NO;
     [ctrl addSubview:mode];
     gModeBtn4 = mode;
 
-    /* —— 网易云登录键（把原来那个改成登录入口，文案随状态变） —— */
+    /* —— 把主实现里的「网易云 · 登录」改成登录入口，缩窄给模式键腾位 —— */
     for (UIView *v in ctrl.subviews) {
-        if (![v isKindOfClass:[UIButton class]]) continue;
+        if (![v isKindOfClass:[UIButton class]] || v == mode) continue;
         UIButton *b = (UIButton *)v;
         CGRect f = b.frame;
-        if (f.origin.x > 200 && f.origin.x < 300 && f.size.width > 100) {
-            /* 这就是主实现里那颗「网易云 · 登录」 */
+        if (f.origin.x > 200 && f.size.width >= 100) {
             [b removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
             [b addTarget:self action:@selector(lll4_onLoginTap:)
         forControlEvents:UIControlEventTouchUpInside];
@@ -208,6 +206,28 @@ static BOOL gButtonsAttached = NO;
         [cur updateArtwork:img url:url];
         [LLLMusicIsland refresh];
     }];
+}
+
++ (void)lll4_setCloudTapHandler:(void (^)(void))handler {
+    gIslandCloudTap = [handler copy];
+}
+
+@end
+
+#pragma mark - 别名
+
+@implementation LLLMusicIsland (Island4Alias)
+
++ (void)setCloudLoginHandler:(void (^)(void))handler {
+    [self lll4_setCloudTapHandler:handler];
+}
+
++ (void)refreshCloudButton {
+    [self lll4_refreshLoginButton];
+}
+
++ (void)refreshModeButton {
+    [self lll4_refreshModeButton];
 }
 
 @end
