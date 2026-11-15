@@ -52,27 +52,30 @@ extern NSString * const LLLPlayerCoreDidChange;
 /// 当前曲目在队列里的字典（网易云才有，本地为 nil）
 @property (nonatomic, strong, readonly, nullable) NSDictionary *currentSong;
 
-/// 本地视频画面（只有 LLLPlaySourceLocalVideo 时非空，供灵动岛/封面位挂 layer）
+/// 本地视频画面（只有 LLLPlaySourceLocalVideo 时非空）
 @property (nonatomic, strong, readonly, nullable) AVPlayer *videoPlayer;
 
 /// 已播秒数。**方法，不是属性** —— 播放中实时从底层播放器读，
-/// 不要缓成属性，否则切歌/seek 之后会读到旧值。
+/// 别缓存成属性，否则切歌 / seek 之后会读到旧值。
 - (NSTimeInterval)currentElapsed;
+
+/// 模式中文名（顺序播放 / 单曲循环 / 随机播放）
+- (NSString *)modeLabel;
 
 #pragma mark - 队列
 
-/// 本地队列：names 与 paths 一一对应，index 为起始曲目（-1 表示不自动播）
+/// 本地队列：names 与 paths 一一对应，index 为起始曲目（-1 表示只换队列不播）
 - (void)setLocalQueueNames:(NSArray<NSString *> *)names
                      paths:(NSArray<NSString *> *)paths
                    startAt:(NSInteger)index;
 
-/// 网易云队列：songs 是 LLLCloudMusic mapTracks 的输出（id/name/artist/pic/dur）
+/// 网易云队列：songs 是 mapTracks 的输出（id/name/artist/pic/dur）
 - (void)setCloudQueue:(NSArray<NSDictionary *> *)songs startAt:(NSInteger)index;
 
 /// 只更新队列不播放（切源时用，避免立刻出声）
 - (void)setCloudQueueSilently:(NSArray<NSDictionary *> *)songs;
 
-#pragma mark - 播放控制（卡片、灵动岛、系统遥控都走这些）
+#pragma mark - 播放控制
 
 - (void)play;
 - (void)pause;
