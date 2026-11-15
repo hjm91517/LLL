@@ -1,6 +1,15 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 
+/// 播放模式：顺序（播完停）/ 列表循环 / 单曲循环 / 随机
+/// 4.0 起这是唯一真源，loopModeSingle / shuffleMode 只是给旧调用方留的镜像字段
+ typedef NS_ENUM(NSInteger, LLLPlayMode) {
+    LLLPlayModeOrder     = 0,
+    LLLPlayModeRepeatAll = 1,
+    LLLPlayModeRepeatOne = 2,
+    LLLPlayModeShuffle   = 3
+};
+
 @interface MainViewController : UIViewController
 
 @property (nonatomic, strong) UITableView *st, *qt, *pt, *pqt, *musict;
@@ -23,6 +32,11 @@
 @property (nonatomic, strong) NSArray<NSDictionary *> *cloudSongs;
 @property (nonatomic, strong) UISegmentedControl *musicSrcSeg;
 @property (nonatomic, assign) NSInteger currentMusicIndex;
+
+/// 4.0：播放模式唯一真源（顺序 / 列表循环 / 单曲循环 / 随机）
+@property (nonatomic, assign) LLLPlayMode playMode;
+
+/// 兼容旧字段：由 playMode 同步过来，别直接写它们
 @property (nonatomic, assign) BOOL loopModeSingle, shuffleMode, doubleSpeed, isPlaying;
 @property (nonatomic, strong) UIButton *playPauseBtn, *speedBtn, *modeBtn;
 @property (nonatomic, strong) AVAudioPlayer *audioPlayer;

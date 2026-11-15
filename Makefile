@@ -33,6 +33,7 @@ bbhj_online_FILES = \
     ui/LLLUiKit.m \
     ui/LLLCloudMusic.m \
     ui/LLLCloudLogin.m \
+    ui/LLLBrandArt.m \
     ui/LLLLaunchCard.m \
     core/LLLStealth.m \
     core/LLLZip.m \

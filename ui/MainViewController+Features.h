@@ -13,6 +13,25 @@
 - (void)musicCellPlay:(UIButton *)sender;
 - (void)upEmptyMusic;
 
+#pragma mark - 4.0 播放模式
+
+/// 当前是不是网易云在播（cloudPlayer 活着就算）
+- (BOOL)lllCloudActive;
+
+/// 当前是否真的在出声：云端看 isPlaying（playCloudSong 会同步），本地看 isPlaying
+- (BOOL)lllIsPlaying;
+
+/// 切换播放模式（四态：顺序 / 列表 / 单曲 / 随机），会写偏好并刷新 UI
+- (void)lllSetPlayMode:(LLLPlayMode)mode;
+
+/// 统一的索引推进：返回 -1 表示「播到头了，停」
+/// @param delta  +1 下一首 / -1 上一首
+/// @param isAuto YES = 一首放完自动切（顺序模式会停），NO = 用户手点（顺序模式回到第一首）
+- (NSInteger)lllAdvanceIndex:(NSInteger)delta
+                        from:(NSInteger)cur
+                       count:(NSInteger)count
+                        auto:(BOOL)isAuto;
+
 - (void)doInject;
 - (void)doClean;
 - (void)doKill;
