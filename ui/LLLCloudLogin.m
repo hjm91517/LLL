@@ -1,12 +1,21 @@
 //
-//  LLLCloudLogin.m
+//  ui/LLLCloudLogin.m  — 4.0
 //
 
 #import "LLLCloudLogin.h"
 #import "MainViewController+Features.h"
+#import "MainViewController+Music4.h"
+#import "MainViewController+MusicUI4.h"
+#import "MainViewController+GuestPanel4.h"
+#import "MainViewController+CloudLists4.h"
 #import "LLLCloudMusic.h"
+#import "LLLCloudVIP.h"
+#import "LLLCloudRequest.h"
+#import "LLLPlayerCore.h"
+#import "LLLMusicController.h"
 #import "LLLNowPlaying.h"
 #import "LLLMusicIsland.h"
+#import "LLLWebLogin.h"
 #import "LLLUiKit.h"
 #import "BaseComponents.h"
 #import <AVFoundation/AVFoundation.h>
@@ -14,21 +23,20 @@
 
 @interface MainViewController (LLLCloudPrivate)
 - (void)applyVolume;
-- (void)startProgressTimer;
+@end
+
+@interface MainViewController (CloudLoginInternal)
+- (NSArray<NSDictionary *> *)lll4_currentCloudQueue:(NSDictionary *)song;
 @end
 
 static void (^gCloseLoginCard)(void) = nil;
-static NSArray<NSDictionary *> *gCloudSongs = nil;
-static NSInteger gCloudIndex = -1;
-
 static UITextField *gPhoneField = nil;
 static UITextField *gCodeField = nil;
 static UIButton    *gSendBtn = nil;
 static UITextView  *gCookieView = nil;
 static UILabel     *gLoginHint = nil;
+static WKWebView   *gWebLogin = nil;
 
-/* 常驻宿主：浮窗面板创建时登记，灵动岛入口直接用这一个。
-   以前每次 new 一个临时 VC，ARC 立刻回收 → 登录回调全打在 nil 上。 */
 static __weak MainViewController *gCloudHostRef = nil;
 static MainViewController *gCloudHostOwned = nil;
 
@@ -48,41 +56,56 @@ static MainViewController *gCloudHostOwned = nil;
 #pragma mark - 入口
 
 - (void)dismissCloudLoginCard {
-    /* 关卡片 = 放弃这次登录：不停轮询的话，四分钟后还会突然弹一条"登录成功" */
     [[LLLCloudMusic shared] cancelLogin];
     if (gCloseLoginCard) { gCloseLoginCard(); gCloseLoginCard = nil; }
 }
 
 - (void)setCloudQueue:(NSArray<NSDictionary *> *)songs {
-    gCloudSongs = songs;
-    gCloudIndex = -1;
+    [[LLLPlayerCore shared] setCloudQueueSilently:songs];
 }
 
 - (void)openCloudMusic {
     LLLCloudMusic *cm = [LLLCloudMusic shared];
+
     if (cm.loggedIn) {
-        LLLShowSheet(@"网易云音乐", cm.nickname.length ? cm.nickname : @"已登录",
-                     @[ @"我喜欢的音乐", @"搜索音乐", @"切换账号", @"退出登录" ], YES,
+        NSString *vip = (cm.vipType > 0) ? @"会员" : @"普通";
+        NSString *sub = [NSString stringWithFormat:@"%@ · %@",
+                         cm.nickname.length ? cm.nickname : @"已登录", vip];
+        __weak typeof(self) w = self;
+        LLLShowSheet(@"网易云音乐", sub,
+                     @[ @"我喜欢的音乐", @"每日推荐", @"搜索音乐", @"重新登录", @"退出登录" ], YES,
                      ^(NSInteger idx) {
-            if (idx == 0) [self showLikedSongs];
-            else if (idx == 1) [self searchCloudMusic];
-            else if (idx == 2) {
+            __strong typeof(w) s = w;
+            if (!s) return;
+            if (idx == 0) [s showLikedSongs];
+            else if (idx == 1) [s showDailyRecommend];
+            else if (idx == 2) [s searchCloudMusic];
+            else if (idx == 3) { [s presentLoginChooser]; }
+            else {
                 [[LLLCloudMusic shared] logout];
-                [self openCloudMusic];
-            } else {
-                [[LLLCloudMusic shared] logout];
+                [LLLMusicIsland refresh];
+                [s lll4_refreshLoginButton];
                 ShowToast(@"已退出登录", 1.5, YES, NO);
             }
         });
         return;
     }
 
-    LLLShowSheet(@"网易云登录", @"三种方式任选，登录后自动拉「我喜欢的音乐」",
-                 @[ @"网页登录（推荐）", @"扫码登录", @"手机验证码", @"粘贴 Cookie" ], NO, ^(NSInteger idx) {
-        if (idx == 0) [self cloudLoginWeb];
-        else if (idx == 1) [self cloudLoginQR];
-        else if (idx == 2) [self cloudLoginPhone];
-        else if (idx == 3) [self cloudLoginCookie];
+    [self presentLoginChooser];
+}
+
+- (void)presentLoginChooser {
+    __weak typeof(self) w = self;
+    LLLShowSheet(@"网易云登录", @"网页登录最稳（站点自己过风控）；不想登录可以直接用免登录听",
+                 @[ @"网页登录（推荐）", @"扫码登录", @"手机验证码", @"粘贴 Cookie", @"免登录听" ], NO,
+                 ^(NSInteger idx) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+        if (idx == 0) [s cloudLoginWeb];
+        else if (idx == 1) [s cloudLoginQR];
+        else if (idx == 2) [s cloudLoginPhone];
+        else if (idx == 3) [s cloudLoginCookie];
+        else [s lll4_openGuestMusic];
     });
 }
 
@@ -95,80 +118,45 @@ static MainViewController *gCloudHostOwned = nil;
         [self dismissCloudLoginCard];
         gPhoneField = nil; gCodeField = nil; gSendBtn = nil; gCookieView = nil; gLoginHint = nil;
         NSString *shown = msg.length ? msg : (ok ? @"登录成功" : @"登录失败");
-        if (!ok && ([shown containsString:@"风险"] || [shown containsString:@"风控"])) {
-            shown = [shown stringByAppendingString:@"（改用网页登录）"];
-        }
         ShowToast(shown, 2.6, YES, !ok);
         PlayHaptic(ok);
-        if (ok) [self showLikedSongs];
+        [LLLMusicIsland refresh];
+        [self lll4_refreshLoginButton];
+        if (ok) {
+            [[LLLMusicController shared] reloadCloudLiked];
+            [self showLikedSongs];
+        }
     });
 }
 
-#pragma mark - 网页登录（站点自己过风控，我们只收 cookie）
-
-static WKWebView *gWebLogin = nil;
+#pragma mark - 网页登录
 
 - (void)cloudLoginWeb {
-    LLLShowCustomCard(340, 560, ^(UIView *card, void (^close)(void)) {
-        gCloseLoginCard = [close copy];
-        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 340;
-        card.frame = CGRectMake(0, 0, w, 486);
-
-        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, w - 32, 22)];
-        t.text = @"网页登录（登录完点下面按钮）";
-        t.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-        t.textColor = UIColor.whiteColor;
-        t.textAlignment = NSTextAlignmentCenter;
-        [card addSubview:t];
-
-        WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
-        cfg.websiteDataStore = WKWebsiteDataStore.defaultDataStore;
-        WKWebView *wv = [[WKWebView alloc] initWithFrame:CGRectMake(10, 40, w - 20, 380) configuration:cfg];
-        wv.backgroundColor = UIColor.whiteColor;
-        wv.opaque = YES;
-        wv.layer.cornerRadius = 10;
-        wv.clipsToBounds = YES;
-        [card addSubview:wv];
-        gWebLogin = wv;
-        [wv loadRequest:[NSURLRequest requestWithURL:
-                         [NSURL URLWithString:@"https://music.163.com/#/login"]]];
-
-        UIButton *done = [UIButton buttonWithType:UIButtonTypeSystem];
-        done.frame = CGRectMake(14, 428, w - 28, 44);
-        done.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
-        done.layer.cornerRadius = 12;
-        [done setTitle:@"我登录好了，同步 Cookie" forState:UIControlStateNormal];
-        [done setTitleColor:UIColor.blackColor forState:UIControlStateNormal];
-        done.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
-        [done addTarget:self action:@selector(doHarvestWebCookies) forControlEvents:UIControlEventTouchUpInside];
-        [card addSubview:done];
-    });
+    __weak typeof(self) w = self;
+    [LLLWebLogin presentWithDone:^(BOOL ok, NSString *msg) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (s) [s loginDone:ok msg:msg];
+        });
+    }];
 }
 
 - (void)doHarvestWebCookies {
     WKWebView *wv = gWebLogin;
-    if (!wv) return;
+    if (!wv) { [self loginDone:NO msg:@"网页没有加载"]; return; }
+
     __weak typeof(self) w = self;
     [wv.configuration.websiteDataStore.httpCookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
         dispatch_async(dispatch_get_main_queue(), ^{
             __strong typeof(w) s = w;
             if (!s) return;
-
-            NSMutableArray *parts = [NSMutableArray array];
+            NSMutableArray *keep = [NSMutableArray array];
             for (NSHTTPCookie *c in cookies) {
-                if ([c.domain containsString:@"music.163.com"] &&
-                    (([c.name isEqualToString:@"MUSIC_U"]) || [c.name isEqualToString:@"__csrf"])) {
-                    [parts addObject:[NSString stringWithFormat:@"%@=%@", c.name, c.value]];
-                }
+                if ([c.domain containsString:@"163.com"] && c.value.length) [keep addObject:c];
             }
-            if (!parts.count) {
-                [s loginHint:@"还没登上：网页里先完成登录"];
-                PlayHaptic(NO);
-                return;
-            }
+            if (!keep.count) { [s loginHint:@"还没登上：网页里先完成登录"]; PlayHaptic(NO); return; }
             [s loginHint:@"校验中…"];
-            [[LLLCloudMusic shared] loginWithCookie:[parts componentsJoinedByString:@"; "]
-                                         completion:^(BOOL ok, NSString *msg) {
+            [[LLLCloudMusic shared] adoptCookies:keep completion:^(BOOL ok, NSString *msg) {
                 __strong typeof(w) s2 = w;
                 if (s2) [s2 loginDone:ok msg:msg];
             }];
@@ -184,24 +172,24 @@ static WKWebView *gWebLogin = nil;
 
     LLLShowCustomCard(320, 520, ^(UIView *card, void (^close)(void)) {
         gCloseLoginCard = [close copy];
-        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
-        card.frame = CGRectMake(0, 0, w, 392);
+        CGFloat cw = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
+        card.frame = CGRectMake(0, 0, cw, 392);
 
-        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, w - 32, 24)];
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, cw - 32, 24)];
         t.text = @"扫码登录";
         t.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
         t.textColor = UIColor.whiteColor;
         t.textAlignment = NSTextAlignmentCenter;
         [card addSubview:t];
 
-        qrView = [[UIImageView alloc] initWithFrame:CGRectMake((w - 200) / 2, 56, 200, 200)];
+        qrView = [[UIImageView alloc] initWithFrame:CGRectMake((cw - 200) / 2, 56, 200, 200)];
         qrView.backgroundColor = UIColor.whiteColor;
         qrView.layer.cornerRadius = 10;
         qrView.clipsToBounds = YES;
         qrView.contentMode = UIViewContentModeScaleAspectFit;
         [card addSubview:qrView];
 
-        hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 268, w - 32, 18)];
+        hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 268, cw - 32, 18)];
         hint.text = @"正在获取二维码…";
         hint.font = [UIFont systemFontOfSize:12];
         hint.textColor = [UIColor colorWithWhite:0.7 alpha:1];
@@ -209,7 +197,7 @@ static WKWebView *gWebLogin = nil;
         [card addSubview:hint];
 
         UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
-        cancel.frame = CGRectMake(14, 300, w - 28, 44);
+        cancel.frame = CGRectMake(14, 300, cw - 28, 44);
         cancel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
         cancel.layer.cornerRadius = 12;
         [cancel setTitle:@"取消" forState:UIControlStateNormal];
@@ -219,13 +207,17 @@ static WKWebView *gWebLogin = nil;
         [card addSubview:cancel];
     });
 
+    __weak typeof(self) w = self;
     [[LLLCloudMusic shared] startLoginWithQR:^(UIImage *qr, NSString *status) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (qr) qrView.image = qr;
             if (status.length) hint.text = status;
         });
     } completion:^(BOOL ok, NSString *msg) {
-        [self loginDone:ok msg:msg];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (s) [s loginDone:ok msg:msg];
+        });
     }];
 }
 
@@ -234,17 +226,17 @@ static WKWebView *gWebLogin = nil;
 - (void)cloudLoginPhone {
     LLLShowCustomCard(320, 460, ^(UIView *card, void (^close)(void)) {
         gCloseLoginCard = [close copy];
-        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
-        card.frame = CGRectMake(0, 0, w, 348);
+        CGFloat cw = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
+        card.frame = CGRectMake(0, 0, cw, 348);
 
-        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, w - 32, 24)];
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, cw - 32, 24)];
         t.text = @"手机验证码登录";
         t.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
         t.textColor = UIColor.whiteColor;
         t.textAlignment = NSTextAlignmentCenter;
         [card addSubview:t];
 
-        gPhoneField = [[UITextField alloc] initWithFrame:CGRectMake(18, 56, w - 36, 42)];
+        gPhoneField = [[UITextField alloc] initWithFrame:CGRectMake(18, 56, cw - 36, 42)];
         gPhoneField.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
         gPhoneField.layer.cornerRadius = 10;
         gPhoneField.textColor = UIColor.whiteColor;
@@ -256,7 +248,7 @@ static WKWebView *gWebLogin = nil;
         gPhoneField.leftViewMode = UITextFieldViewModeAlways;
         [card addSubview:gPhoneField];
 
-        gCodeField = [[UITextField alloc] initWithFrame:CGRectMake(18, 104, w - 36 - 108, 42)];
+        gCodeField = [[UITextField alloc] initWithFrame:CGRectMake(18, 104, cw - 36 - 108, 42)];
         gCodeField.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
         gCodeField.layer.cornerRadius = 10;
         gCodeField.textColor = UIColor.whiteColor;
@@ -269,7 +261,7 @@ static WKWebView *gWebLogin = nil;
         [card addSubview:gCodeField];
 
         gSendBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        gSendBtn.frame = CGRectMake(w - 18 - 100, 104, 100, 42);
+        gSendBtn.frame = CGRectMake(cw - 18 - 100, 104, 100, 42);
         gSendBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.14];
         gSendBtn.layer.cornerRadius = 10;
         [gSendBtn setTitle:@"发送验证码" forState:UIControlStateNormal];
@@ -279,7 +271,7 @@ static WKWebView *gWebLogin = nil;
         [card addSubview:gSendBtn];
 
         UIButton *go = [UIButton buttonWithType:UIButtonTypeSystem];
-        go.frame = CGRectMake(18, 158, w - 36, 44);
+        go.frame = CGRectMake(18, 158, cw - 36, 44);
         go.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
         go.layer.cornerRadius = 12;
         [go setTitle:@"登录" forState:UIControlStateNormal];
@@ -288,7 +280,7 @@ static WKWebView *gWebLogin = nil;
         [go addTarget:self action:@selector(doPhoneLogin) forControlEvents:UIControlEventTouchUpInside];
         [card addSubview:go];
 
-        gLoginHint = [[UILabel alloc] initWithFrame:CGRectMake(18, 208, w - 36, 32)];
+        gLoginHint = [[UILabel alloc] initWithFrame:CGRectMake(18, 208, cw - 36, 32)];
         gLoginHint.text = @"网易已关闭密码登录，只能收短信验证码";
         gLoginHint.numberOfLines = 2;
         gLoginHint.font = [UIFont systemFontOfSize:11];
@@ -297,7 +289,7 @@ static WKWebView *gWebLogin = nil;
         [card addSubview:gLoginHint];
 
         UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
-        cancel.frame = CGRectMake(18, 252, w - 36, 40);
+        cancel.frame = CGRectMake(18, 252, cw - 36, 40);
         cancel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
         cancel.layer.cornerRadius = 12;
         [cancel setTitle:@"取消" forState:UIControlStateNormal];
@@ -310,11 +302,7 @@ static WKWebView *gWebLogin = nil;
 
 - (void)doSendCode {
     NSString *phone = gPhoneField.text;
-    if (phone.length < 6) {
-        [self loginHint:@"先把手机号填完"];
-        PlayHaptic(NO);
-        return;
-    }
+    if (phone.length < 6) { [self loginHint:@"先把手机号填完"]; PlayHaptic(NO); return; }
     gSendBtn.enabled = NO;
     [self loginHint:@"发送中…"];
     __weak typeof(self) w = self;
@@ -350,8 +338,10 @@ static WKWebView *gWebLogin = nil;
     [self loginHint:@"登录中…"];
     __weak typeof(self) w = self;
     [[LLLCloudMusic shared] loginWithPhone:phone captcha:code completion:^(BOOL ok, NSString *msg) {
-        __strong typeof(w) s = w;
-        if (s) [s loginDone:ok msg:msg];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (s) [s loginDone:ok msg:msg];
+        });
     }];
 }
 
@@ -360,17 +350,17 @@ static WKWebView *gWebLogin = nil;
 - (void)cloudLoginCookie {
     LLLShowCustomCard(320, 420, ^(UIView *card, void (^close)(void)) {
         gCloseLoginCard = [close copy];
-        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
-        card.frame = CGRectMake(0, 0, w, 316);
+        CGFloat cw = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
+        card.frame = CGRectMake(0, 0, cw, 316);
 
-        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, w - 32, 24)];
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, cw - 32, 24)];
         t.text = @"粘贴 Cookie";
         t.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
         t.textColor = UIColor.whiteColor;
         t.textAlignment = NSTextAlignmentCenter;
         [card addSubview:t];
 
-        gCookieView = [[UITextView alloc] initWithFrame:CGRectMake(18, 54, w - 36, 110)];
+        gCookieView = [[UITextView alloc] initWithFrame:CGRectMake(18, 54, cw - 36, 110)];
         gCookieView.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
         gCookieView.layer.cornerRadius = 10;
         gCookieView.textColor = UIColor.whiteColor;
@@ -379,7 +369,7 @@ static WKWebView *gWebLogin = nil;
         [card addSubview:gCookieView];
 
         UIButton *go = [UIButton buttonWithType:UIButtonTypeSystem];
-        go.frame = CGRectMake(18, 176, w - 36, 44);
+        go.frame = CGRectMake(18, 176, cw - 36, 44);
         go.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
         go.layer.cornerRadius = 12;
         [go setTitle:@"登录" forState:UIControlStateNormal];
@@ -388,15 +378,15 @@ static WKWebView *gWebLogin = nil;
         [go addTarget:self action:@selector(doCookieLogin) forControlEvents:UIControlEventTouchUpInside];
         [card addSubview:go];
 
-        gLoginHint = [[UILabel alloc] initWithFrame:CGRectMake(18, 226, w - 36, 18)];
-        gLoginHint.text = @"手机端抓包复制整段 Cookie";
+        gLoginHint = [[UILabel alloc] initWithFrame:CGRectMake(18, 226, cw - 36, 18)];
+        gLoginHint.text = @"整段复制，包含 MUSIC_U";
         gLoginHint.font = [UIFont systemFontOfSize:11];
         gLoginHint.textColor = [UIColor colorWithWhite:0.5 alpha:1];
         gLoginHint.textAlignment = NSTextAlignmentCenter;
         [card addSubview:gLoginHint];
 
         UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
-        cancel.frame = CGRectMake(18, 252, w - 36, 40);
+        cancel.frame = CGRectMake(18, 252, cw - 36, 40);
         cancel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
         cancel.layer.cornerRadius = 12;
         [cancel setTitle:@"取消" forState:UIControlStateNormal];
@@ -417,116 +407,44 @@ static WKWebView *gWebLogin = nil;
     [self loginHint:@"校验中…"];
     __weak typeof(self) w = self;
     [[LLLCloudMusic shared] loginWithCookie:raw completion:^(BOOL ok, NSString *msg) {
-        __strong typeof(w) s = w;
-        if (s) [s loginDone:ok msg:msg];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (s) [s loginDone:ok msg:msg];
+        });
     }];
 }
 
-#pragma mark - 云端播放
-
-- (void)installNowPlayingBridge {
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        [LLLNowPlaying setCommandHandler:^(LLLNPCommand cmd, double value) {
-            /* 每次都取当前常驻宿主，别再闭包里绑死一个对象（绑死了宿主走了岛就哑了） */
-            MainViewController *s = [MainViewController cloudHost];
-            if (!s) return;
-
-            if (cmd == LLLNPCommandTogglePlay) {
-                if (s.cloudPlayer) {
-                    BOOL playing = (s.cloudPlayer.rate > 0.01);
-                    if (playing) [s.cloudPlayer pause]; else [s.cloudPlayer play];
-                    [[LLLNowPlaying shared] setPlaying:!playing];
-                } else {
-                    [s togglePlayPause];
-                }
-            } else if (cmd == LLLNPCommandNext) {
-                [s cloudStep:1];
-            } else if (cmd == LLLNPCommandPrevious) {
-                [s cloudStep:-1];
-            } else if (cmd == LLLNPCommandSeek) {
-                if (s.cloudPlayer) {
-                    [s.cloudPlayer seekToTime:CMTimeMakeWithSeconds(value, 600)];
-                    [[LLLNowPlaying shared] updateElapsed:value duration:[LLLNowPlaying shared].duration];
-                } else if (s.audioPlayer) {
-                    s.audioPlayer.currentTime = value;
-                    [[LLLNowPlaying shared] updateElapsed:value duration:[LLLNowPlaying shared].duration];
-                }
-            } else if (cmd == LLLNPCommandVolume) {
-                /* v2.2 灵动岛独立音量：存偏好并应用到所有音乐播放器（不影响系统音量） */
-                double v = value;
-                if (v < 0) v = 0; if (v > 1) v = 1;
-                [[NSUserDefaults standardUserDefaults] setDouble:v forKey:@"LLL.volume"];
-                [s applyVolume];
-            }
-        }];
-    });
-}
-
-- (void)cloudStep:(NSInteger)delta {
-    if (gCloudSongs.count == 0) return;
-    NSInteger n = (NSInteger)gCloudSongs.count;
-    NSInteger base = (gCloudIndex < 0) ? 0 : gCloudIndex;
-    gCloudIndex = (base + delta + n) % n;
-    [self playCloudSong:gCloudSongs[(NSUInteger)gCloudIndex]];
-}
+#pragma mark - 播放（全部转内核）
 
 - (void)playCloudSong:(NSDictionary *)song {
     if (![song isKindOfClass:NSDictionary.class]) return;
-    [self installNowPlayingBridge];
-
-    NSNumber *sid = song[@"id"];
-    gCloudIndex = -1;
-    for (NSUInteger i = 0; i < gCloudSongs.count; i++) {
-        if ([gCloudSongs[i][@"id"] isEqual:sid]) { gCloudIndex = (NSInteger)i; break; }
+    NSArray<NSDictionary *> *queue = [self lll4_currentCloudQueue:song];
+    NSInteger idx = 0;
+    for (NSUInteger i = 0; i < queue.count; i++) {
+        if ([queue[i][@"id"] isEqual:song[@"id"]]) { idx = (NSInteger)i; break; }
     }
+    [[LLLPlayerCore shared] setCloudQueue:queue startAt:idx];
+    [LLLMusicIsland refresh];
+}
 
-    [[LLLNowPlaying shared] beginTrack:(song[@"name"] ?: @"网易云")
-                                artist:(song[@"artist"] ?: @"网易云音乐")
-                               artwork:nil
-                              duration:[song[@"dur"] doubleValue]
-                               elapsed:0];
-
-    NSString *pic = song[@"pic"];
-    if (pic.length) {
-        __weak typeof(self) wa = self;
-        [[LLLCloudMusic shared] loadArtwork:pic done:^(UIImage *img) {
-            if (!img) return;
-            [[LLLNowPlaying shared] updateArtwork:img];
-            dispatch_async(dispatch_get_main_queue(), ^{
-                __strong typeof(wa) sa = wa;
-                if (sa.playerCover) {
-                    sa.playerCover.image = img;
-                    sa.playerCover.contentMode = UIViewContentModeScaleAspectFill;
-                }
-            });
-        }];
+- (NSArray<NSDictionary *> *)lll4_currentCloudQueue:(NSDictionary *)song {
+    LLLMusicController *mc = [LLLMusicController shared];
+    NSInteger n = [mc rowCount];
+    if (n > 0) {
+        NSMutableArray *all = [NSMutableArray array];
+        for (NSInteger i = 0; i < n; i++) {
+            NSDictionary *info = [mc rowInfoAt:i];
+            if (info[@"id"]) [all addObject:info];
+        }
+        if (all.count) return all;
     }
+    return @[ song ];
+}
 
-    __weak typeof(self) w = self;
-    [[LLLCloudMusic shared] resolvePlayURL:sid done:^(NSURL *url, NSString *err) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(w) s = w;
-            if (!s) return;
-            if (!url) {
-                [[LLLNowPlaying shared] setPlaying:NO];
-                ShowToast(err.length ? err : @"拿不到播放地址", 2.2, YES, YES);
-                return;
-            }
-
-            /* 内置播放前先停本地音乐，避免两路声音叠着放 */
-            [s stopMusic];
-            [s.cloudPlayer pause];
-            s.cloudPlayer = [AVPlayer playerWithURL:url];
-            [s applyVolume];
-            [s.cloudPlayer play];
-            [LLLMusicIsland updateTitle:(song[@"name"] ?: @"网易云") playing:YES];
-            if (s.playerTitle)  s.playerTitle.text  = song[@"name"] ?: @"网易云";
-            if (s.playerArtist) s.playerArtist.text = song[@"artist"] ?: @"网易云音乐";
-            [s startProgressTimer];
-            ShowToast([NSString stringWithFormat:@"播放: %@", song[@"name"]], 2, YES, NO);
-        });
-    }];
+- (void)cloudStep:(NSInteger)delta {
+    if (delta > 0) [[LLLPlayerCore shared] next];
+    else           [[LLLPlayerCore shared] previous];
+    [LLLMusicIsland refresh];
 }
 
 @end

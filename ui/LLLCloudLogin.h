@@ -1,24 +1,35 @@
 //
-//  LLLCloudLogin.h
-//  网易云入口：三种登录方式 + 云端播放
+//  ui/LLLCloudLogin.h  — 4.0
 //
 
 #import "MainViewController.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 3.12 兼容入口。声明单独一个分类，与 LLLMusicIslandBridge4.m 的实现分类同名，
+/// 否则 (CloudLogin) 会因“声明了却没实现”被判不完整（-Wincomplete-implementation）。
+@interface MainViewController (NowPlayingBridgeCompat)
+- (void)installNowPlayingBridge;
+@end
+
 @interface MainViewController (CloudLogin)
 
-/// 常驻宿主：灵动岛等"没有面板"的入口全部走这里，保证回调有活着的接收者
+/// 常驻宿主
 + (MainViewController *)cloudHost;
 + (void)registerCloudHost:(MainViewController *)vc;
 
+/// 统一入口：未登录 → 弹登录方式选择；已登录 → 弹账号菜单
 - (void)openCloudMusic;
+- (void)presentLoginChooser;
+
+/// 播放交给内核
 - (void)playCloudSong:(NSDictionary *)song;
 - (void)setCloudQueue:(NSArray<NSDictionary *> *)songs;
-- (void)installNowPlayingBridge;
 - (void)cloudStep:(NSInteger)delta;
+
 - (void)dismissCloudLoginCard;
+
+#pragma mark - 登录方式
 
 - (void)cloudLoginWeb;
 - (void)doHarvestWebCookies;
@@ -28,6 +39,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)doSendCode;
 - (void)doPhoneLogin;
 - (void)doCookieLogin;
+
 - (void)loginHint:(NSString *)text;
 - (void)loginDone:(BOOL)ok msg:(NSString *)msg;
 
