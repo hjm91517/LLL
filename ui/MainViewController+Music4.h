@@ -6,7 +6,7 @@
 #import "MainViewController.h"
 #import "LLLIslandCoreBridge.h"
 #import "LLLMusicController.h"
-#import "MainViewController+GuestPanel4.h"   /* lll4_openGuestMusic，本类实现里会调 */
+#import "MainViewController+GuestPanel4.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -21,6 +21,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)lll4_reloadMusicTab;
 - (void)lll4_musicCellPlay:(UIButton *)sender;
 - (void)lll4_didSelectMusicRow:(NSInteger)row;
+
+/// 老 playMusicAtIndex: 的 4.0 版本（走内核队列）
+- (void)lll4_playMusicAtIndex:(NSInteger)idx;
+/// 老 stopMusic 的 4.0 版本
+- (void)lll4_stopMusic;
 
 - (void)lll4_togglePlayPause;
 - (void)lll4_next;
