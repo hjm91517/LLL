@@ -1,6 +1,5 @@
 //
 //  ui/MainViewController+GuestPanel4.h
-//  免登录面板 + 解锁音源配置
 //
 
 #import "MainViewController.h"
@@ -16,8 +15,12 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)lll4_guestTopList;
 - (void)lll4_presentGuestList:(NSArray<NSDictionary *> *)songs title:(NSString *)title;
 
-/// 会员曲换源地址配置
+/// 解锁音源配置（本地 / 外部）
 - (void)lll4_setupUnblockSource;
+- (void)lll4_useLocalUnblock;
+- (void)lll4_saveUnblockBase;
+- (void)lll4_clearUnblockBase;
+- (void)lll4_closeGuestCard;
 
 @end
 
