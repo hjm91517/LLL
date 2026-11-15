@@ -399,14 +399,14 @@ static void LLLSetVolIcon(UILabel *l, float v) {
     CGSize screen = UIScreen.mainScreen.bounds.size;
     if (screen.width < 10 || screen.height < 10) screen = CGSizeMake(390, 844);
     CGFloat x = floorf((screen.width - w) / 2.0f);
-    CGFloat y = [self topInset] + 6;
+    CGFloat y = [self topInset] + 1;
     if (@available(iOS 11.0, *)) {
         UIWindow *key = UIApplication.sharedApplication.keyWindow;
         if (key) {
             UIEdgeInsets si = key.safeAreaInsets;
             CGFloat maxTop = screen.height - h - 12;
             /* 有刘海/灵动岛的真机：状态栏高度已经包含安全区，别再加一次 */
-            if (si.top > 0) y = MAX(y, si.top + 4);
+            if (si.top > 0) y = MAX(y, si.top - 4);   /* 3.11：整体上移 */
             if (y > maxTop) y = MAX(8, maxTop);
         }
     }

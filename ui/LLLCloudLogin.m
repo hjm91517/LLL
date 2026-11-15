@@ -10,6 +10,7 @@
 #import "LLLUiKit.h"
 #import "BaseComponents.h"
 #import <AVFoundation/AVFoundation.h>
+#import <WebKit/WebKit.h>
 
 @interface MainViewController (LLLCloudPrivate)
 - (void)applyVolume;
@@ -77,10 +78,11 @@ static MainViewController *gCloudHostOwned = nil;
     }
 
     LLLShowSheet(@"网易云登录", @"三种方式任选，登录后自动拉「我喜欢的音乐」",
-                 @[ @"扫码登录", @"手机验证码", @"粘贴 Cookie" ], NO, ^(NSInteger idx) {
-        if (idx == 0) [self cloudLoginQR];
-        else if (idx == 1) [self cloudLoginPhone];
-        else if (idx == 2) [self cloudLoginCookie];
+                 @[ @"网页登录（推荐）", @"扫码登录", @"手机验证码", @"粘贴 Cookie" ], NO, ^(NSInteger idx) {
+        if (idx == 0) [self cloudLoginWeb];
+        else if (idx == 1) [self cloudLoginQR];
+        else if (idx == 2) [self cloudLoginPhone];
+        else if (idx == 3) [self cloudLoginCookie];
     });
 }
 
@@ -92,10 +94,86 @@ static MainViewController *gCloudHostOwned = nil;
     dispatch_async(dispatch_get_main_queue(), ^{
         [self dismissCloudLoginCard];
         gPhoneField = nil; gCodeField = nil; gSendBtn = nil; gCookieView = nil; gLoginHint = nil;
-        ShowToast(msg.length ? msg : (ok ? @"登录成功" : @"登录失败"), 2.2, YES, !ok);
+        NSString *shown = msg.length ? msg : (ok ? @"登录成功" : @"登录失败");
+        if (!ok && ([shown containsString:@"风险"] || [shown containsString:@"风控"])) {
+            shown = [shown stringByAppendingString:@"（改用网页登录）"];
+        }
+        ShowToast(shown, 2.6, YES, !ok);
         PlayHaptic(ok);
         if (ok) [self showLikedSongs];
     });
+}
+
+#pragma mark - 网页登录（站点自己过风控，我们只收 cookie）
+
+static WKWebView *gWebLogin = nil;
+
+- (void)cloudLoginWeb {
+    LLLShowCustomCard(340, 560, ^(UIView *card, void (^close)(void)) {
+        gCloseLoginCard = [close copy];
+        CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 340;
+        card.frame = CGRectMake(0, 0, w, 486);
+
+        UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, w - 32, 22)];
+        t.text = @"网页登录（登录完点下面按钮）";
+        t.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+        t.textColor = UIColor.whiteColor;
+        t.textAlignment = NSTextAlignmentCenter;
+        [card addSubview:t];
+
+        WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
+        cfg.websiteDataStore = WKWebsiteDataStore.defaultDataStore;
+        WKWebView *wv = [[WKWebView alloc] initWithFrame:CGRectMake(10, 40, w - 20, 380) configuration:cfg];
+        wv.backgroundColor = UIColor.whiteColor;
+        wv.opaque = YES;
+        wv.layer.cornerRadius = 10;
+        wv.clipsToBounds = YES;
+        [card addSubview:wv];
+        gWebLogin = wv;
+        [wv loadRequest:[NSURLRequest requestWithURL:
+                         [NSURL URLWithString:@"https://music.163.com/#/login"]]];
+
+        UIButton *done = [UIButton buttonWithType:UIButtonTypeSystem];
+        done.frame = CGRectMake(14, 428, w - 28, 44);
+        done.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
+        done.layer.cornerRadius = 12;
+        [done setTitle:@"我登录好了，同步 Cookie" forState:UIControlStateNormal];
+        [done setTitleColor:UIColor.blackColor forState:UIControlStateNormal];
+        done.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        [done addTarget:self action:@selector(doHarvestWebCookies) forControlEvents:UIControlEventTouchUpInside];
+        [card addSubview:done];
+    });
+}
+
+- (void)doHarvestWebCookies {
+    WKWebView *wv = gWebLogin;
+    if (!wv) return;
+    __weak typeof(self) w = self;
+    [wv.configuration.websiteDataStore.httpCookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (!s) return;
+
+            NSMutableArray *parts = [NSMutableArray array];
+            for (NSHTTPCookie *c in cookies) {
+                if ([c.domain containsString:@"music.163.com"] &&
+                    (([c.name isEqualToString:@"MUSIC_U"]) || [c.name isEqualToString:@"__csrf"])) {
+                    [parts addObject:[NSString stringWithFormat:@"%@=%@", c.name, c.value]];
+                }
+            }
+            if (!parts.count) {
+                [s loginHint:@"还没登上：网页里先完成登录"];
+                PlayHaptic(NO);
+                return;
+            }
+            [s loginHint:@"校验中…"];
+            [[LLLCloudMusic shared] loginWithCookie:[parts componentsJoinedByString:@"; "]
+                                         completion:^(BOOL ok, NSString *msg) {
+                __strong typeof(w) s2 = w;
+                if (s2) [s2 loginDone:ok msg:msg];
+            }];
+        });
+    }];
 }
 
 #pragma mark - 扫码

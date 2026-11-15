@@ -40,7 +40,7 @@ bbhj_online_FILES = \
 
 # ImageIO 必须显式链接：BaseComponents.m 用 CGImageSourceCreateWithURL 做缩略图，
 # 不写 -framework ImageIO 在真机上会走不到，链接期也容易莫名 undefined。
-bbhj_online_FRAMEWORKS = UIKit Foundation AVFoundation PhotosUI ImageIO CoreImage CoreGraphics Security
+bbhj_online_FRAMEWORKS = UIKit Foundation AVFoundation PhotosUI ImageIO CoreImage CoreGraphics Security WebKit
 
 bbhj_online_CFLAGS = \
     -fobjc-arc \

@@ -20,6 +20,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)cloudStep:(NSInteger)delta;
 - (void)dismissCloudLoginCard;
 
+- (void)cloudLoginWeb;
+- (void)doHarvestWebCookies;
 - (void)cloudLoginQR;
 - (void)cloudLoginPhone;
 - (void)cloudLoginCookie;
