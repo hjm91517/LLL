@@ -42,9 +42,10 @@ bbhj_online_FILES = \
     ui/LLLUiKit.m \
     ui/LLLCloudRequest.m \
     ui/LLLCloudVIP.m \
+    ui/LLLGuestMusic.m \
+    ui/LLLGuestPanel.m \
     ui/LLLCloudMusic.m \
     ui/LLLCloudLogin.m \
-    ui/LLLCloudLists4.m \
     ui/LLLWebLogin.m \
     ui/LLLLaunchCard.m \
     Entry.m
