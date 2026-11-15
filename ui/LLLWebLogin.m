@@ -1,7 +1,7 @@
 //
 //  ui/LLLWebLogin.m  — 4.0
 //  官方网页登录：WKWebView 直接开 music.163.com/login，登录成功后收 MUSIC_U。
-//  走站点自己的页面和 Cookie，比接口登录稳，风控由网易自己的前端过。
+//  走站点自己的页面和 Cookie，风控由网易自己的前端过。
 //
 
 #import "LLLWebLogin.h"
@@ -10,10 +10,16 @@
 #import <WebKit/WebKit.h>
 
 static UIWindow *gWin = nil;
-static WKWebView *gWeb = nil;
 static NSTimer *gPoll = nil;
 static void (^gDone)(BOOL, NSString *) = nil;
 static BOOL gFinished = NO;
+
+/* 先声明再用，避免隐式声明 */
+@interface LLLWebLogin (Internal)
++ (void)finishWithCookies:(NSArray<NSHTTPCookie *> *)cookies;
+@end
+
+#pragma mark - VC
 
 @interface LLLWebLoginVC : UIViewController
 @end
@@ -26,7 +32,9 @@ static BOOL gFinished = NO;
 
     WKWebViewConfiguration *cfg = [[WKWebViewConfiguration alloc] init];
     cfg.allowsInlineMediaPlayback = YES;
-    cfg.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
+    if (@available(iOS 10.0, *)) {
+        cfg.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
+    }
     cfg.websiteDataStore = WKWebsiteDataStore.defaultDataStore;
 
     WKWebView *wv = [[WKWebView alloc] initWithFrame:CGRectZero configuration:cfg];
@@ -34,13 +42,12 @@ static BOOL gFinished = NO;
     wv.backgroundColor = [UIColor colorWithWhite:0.05 alpha:1];
     wv.opaque = NO;
     if (@available(iOS 11.0, *)) {
-        /* 网易登录页有自己的自定义 UA 判断，移动端 UA 才能出扫码/手机号入口 */
+        /* 网易登录页会看 UA，移动端 UA 才出扫码/手机号入口 */
         wv.customUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
                              @"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
                              @"Mobile/15E148 Safari/604.1";
     }
     [self.view addSubview:wv];
-    gWeb = wv;
 
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
     close.translatesAutoresizingMaskIntoConstraints = NO;
@@ -77,7 +84,8 @@ static BOOL gFinished = NO;
         [wv.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
     ]];
 
-    [wv loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://music.163.com/login"]]];
+    [wv loadRequest:[NSURLRequest requestWithURL:
+                     [NSURL URLWithString:@"https://music.163.com/login"]]];
 }
 
 - (void)onClose {
@@ -86,9 +94,13 @@ static BOOL gFinished = NO;
 
 @end
 
+#pragma mark -
+
 @implementation LLLWebLogin
 
-+ (BOOL)isShowing { return gWin != nil && !gWin.hidden; }
++ (BOOL)isShowing {
+    return gWin != nil && !gWin.hidden && !gFinished;
+}
 
 + (void)presentWithDone:(void (^)(BOOL, NSString *))done {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -102,7 +114,8 @@ static BOOL gFinished = NO;
             for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
                 if ([s isKindOfClass:[UIWindowScene class]] &&
                     s.activationState == UISceneActivationStateForegroundActive) {
-                    scene = (UIWindowScene *)s; break;
+                    scene = (UIWindowScene *)s;
+                    break;
                 }
             }
             gWin = scene ? [[BaseOverlayWindow alloc] initWithWindowScene:scene]
@@ -114,11 +127,13 @@ static BOOL gFinished = NO;
         gWin.rootViewController = [LLLWebLoginVC new];
         gWin.hidden = NO;
 
-        /* 轮询 cookie：只要出现 MUSIC_U 就收工。1 秒一次，比 KVO 稳 */
+        /* 轮询 cookie：出现 MUSIC_U 就收工，1 秒一次比 KVO 稳 */
         [gPoll invalidate];
         gPoll = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
             if (!gWin || gFinished) { [t invalidate]; return; }
-            [[WKWebsiteDataStore defaultDataStore].httpCookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+
+            [[WKWebsiteDataStore defaultDataStore].httpCookieStore
+             getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
                 NSMutableArray<NSHTTPCookie *> *keep = [NSMutableArray array];
                 BOOL hasMusicU = NO;
                 for (NSHTTPCookie *c in cookies) {
@@ -144,13 +159,23 @@ static BOOL gFinished = NO;
     [gPoll invalidate];
     gPoll = nil;
 
-    __weak typeof(self) w = self;
+    /* 先把回调取出来，再关窗口；否则 dismiss 会误发一次"已取消" */
+    void (^cb)(BOOL, NSString *) = gDone;
+    gDone = nil;
+
     [[LLLCloudMusic shared] adoptCookies:cookies completion:^(BOOL ok, NSString *msg) {
-        void (^cb)(BOOL, NSString *) = gDone;
-        gDone = nil;
-        [w dismiss];
-        if (cb) cb(ok, msg);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [LLLWebLogin hideWindow];
+            if (cb) cb(ok, msg);
+        });
     }];
+}
+
++ (void)hideWindow {
+    UIWindow *win = gWin;
+    gWin = nil;
+    win.hidden = YES;
+    win.rootViewController = nil;
 }
 
 + (void)dismiss {
@@ -158,18 +183,12 @@ static BOOL gFinished = NO;
         [gPoll invalidate];
         gPoll = nil;
 
-        UIWindow *win = gWin;
-        gWin = nil;
-        gWeb = nil;
+        [self hideWindow];
 
-        win.hidden = YES;
-        win.rootViewController = nil;
-
-        if (gDone) {
-            void (^cb)(BOOL, NSString *) = gDone;
-            gDone = nil;
-            cb(NO, @"已取消");
-        }
+        void (^cb)(BOOL, NSString *) = gDone;
+        gDone = nil;
+        gFinished = YES;
+        if (cb) cb(NO, @"已取消");
     });
 }
 
