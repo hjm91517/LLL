@@ -6,6 +6,7 @@
 #import "MainViewController.h"
 #import "LLLIslandCoreBridge.h"
 #import "LLLMusicController.h"
+#import "MainViewController+GuestPanel4.h"   /* lll4_openGuestMusic，本类实现里会调 */
 
 NS_ASSUME_NONNULL_BEGIN
 
