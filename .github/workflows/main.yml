@@ -2,7 +2,7 @@ name: Build Dylib
 
 on:
   push:
-    branches: [ main, master, v2 ]
+    branches: [ main, master, v2, "feat/**" ]
     tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
@@ -27,7 +27,8 @@ jobs:
 
       - name: Apply live patch
         run: |
-          if [ -f tools/v24.py ]; then python3 tools/v24.py || true; fi
+          # 不吞错误：补丁锚点丢了就要构建失败，不能让 bug 静静留着
+          if [ -f tools/v24.py ]; then python3 tools/v24.py; fi
 
       - uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -78,14 +79,13 @@ jobs:
           VER=$(sed -n 's/.*kPluginVersion @"\([^"]*\)".*/\1/p' core/PluginInfo.h | head -1)
           [ -z "$VER" ] && VER=0.0
           cp -f dist/bbhj_online.dylib "dist/bbhj-online-$VER.dylib"
-          # 安装说明塞进包里，别让人拿到 zip 不知道放哪
           printf 'LLL %s\n1. 删掉 Frameworks/ 下所有旧的 MaterialPackManager*.dylib\n2. 只放一份 bbhj_online.dylib（或 bbhj-online-%s.dylib，内容一样）\n3. 重签 / 注入后启动游戏\n' "$VER" "$VER" > "dist/安装说明.txt"
           ( cd dist && zip -qry "LLL-$VER-dylib.zip" . )
           ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bbhj-online-2.5-universal
+          name: bbhj-online-3.13-universal
           path: dist/
           if-no-files-found: error
           retention-days: 90
@@ -123,5 +123,5 @@ jobs:
         run: |
           gh run view "${{ github.run_id }}" --repo "${{ github.repository }}" --log-failed > /tmp/f.log 2>&1 || \
             gh run view "${{ github.run_id }}" --repo "${{ github.repository }}" --log > /tmp/f.log 2>&1 || true
-          { echo '```'; grep -nE "error:|fatal error|undefined symbol" /tmp/f.log | head -30; echo '---'; tail -20 /tmp/f.log; echo '```'; } > /tmp/b.md
+          { echo '```'; grep -nE "error:|fatal error|undefined symbol|FAIL" /tmp/f.log | head -40; echo '---'; tail -30 /tmp/f.log; echo '```'; } > /tmp/b.md
           gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file /tmp/b.md || true
