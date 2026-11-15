@@ -8,8 +8,9 @@
 #import "MainViewController.h"
 #import "MainViewController+Music4.h"
 #import "MainViewController+MusicUI4.h"
+#import "MainViewController+GuestPanel4.h"   /* lll4_openGuestMusic */
 #import "MainViewController_Private.h"
-#import "LLLCloudLogin.h"        /* openCloudMusic / presentLoginChooser */
+#import "LLLCloudLogin.h"                    /* openCloudMusic */
 #import "LLLMusicController.h"
 #import "LLLCloudMusic.h"
 #import "LLLMusicIsland.h"
