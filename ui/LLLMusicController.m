@@ -3,6 +3,7 @@
 //
 
 #import "LLLMusicController.h"
+#import "MainViewController.h"
 #import "LLLPlayerCore.h"
 #import "LLLCloudMusic.h"
 #import "LLLCloudVIP.h"
@@ -44,6 +45,30 @@ static NSString * const kSourceKey = @"LLL.musicSource";
 
 - (void)bindHost:(MainViewController *)host {
     self.host = host;
+    [self syncHostArrays];
+}
+
+#pragma mark - 宿主数组同步（修「本地/网易云错乱」）
+
+- (void)syncHostArrays {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self syncHostArrays]; });
+        return;
+    }
+    MainViewController *h = (MainViewController *)self.host;
+    if (!h) return;
+
+    h.musicNames = [self.localNames copy];
+    h.musicPaths = [self.localPaths copy];
+    h.cloudSongs = [self.cloudSongs copy];
+
+    if (h.musicSrcSeg) {
+        NSInteger want = (self.kind == LLLMusicSourceKindCloud) ? 1 : 0;
+        if (h.musicSrcSeg.selectedSegmentIndex != want) {
+            h.musicSrcSeg.selectedSegmentIndex = want;
+        }
+    }
+    [h.musict reloadData];
 }
 
 #pragma mark - 数据源
@@ -52,18 +77,20 @@ static NSString * const kSourceKey = @"LLL.musicSource";
 
 - (void)setSourceKind:(LLLMusicSourceKind)kind {
     if (kind != LLLMusicSourceKindCloud) kind = LLLMusicSourceKindLocal;
-    if (_kind == kind) return;
+    if (_kind == kind) {
+        [self syncHostArrays];
+        return;
+    }
     _kind = kind;
     [NSUserDefaults.standardUserDefaults setInteger:kind forKey:kSourceKey];
 
-    /* 切源只换队列，不打断正在放的那首。
-       以前这里顺手 kill 播放器，音频中断回调把宿主另一条分支带起来，
-       表现就是"切换到其他页面"。 */
+    /* 切源只换队列，不打断正在放的那首 */
     if (kind == LLLMusicSourceKindCloud) {
         [[LLLPlayerCore shared] setCloudQueueSilently:_cloudSongs];
     } else {
         [[LLLPlayerCore shared] setLocalQueueNames:_localNames paths:_localPaths startAt:-1];
     }
+    [self syncHostArrays];
 }
 
 - (NSInteger)rowCount {
@@ -89,6 +116,7 @@ static NSString * const kSourceKey = @"LLL.musicSource";
         [[LLLPlayerCore shared] setLocalQueueNames:_localNames paths:_localPaths startAt:row];
     }
     [LLLMusicIsland refresh];
+    [self syncHostArrays];
 }
 
 - (void)setCloudQueueDirectly:(NSArray<NSDictionary *> *)songs {
@@ -97,6 +125,7 @@ static NSString * const kSourceKey = @"LLL.musicSource";
         if ([s isKindOfClass:NSDictionary.class]) [_cloudSongs addObject:s];
     }
     [[LLLPlayerCore shared] setCloudQueueSilently:_cloudSongs];
+    [self syncHostArrays];
     [[NSNotificationCenter defaultCenter] postNotificationName:@"LLLMusicDataDidChange" object:nil];
 }
 
@@ -106,6 +135,7 @@ static NSString * const kSourceKey = @"LLL.musicSource";
     [NSUserDefaults.standardUserDefaults setInteger:_kind forKey:kSourceKey];
     [[LLLPlayerCore shared] setCloudQueue:_cloudSongs startAt:row];
     [LLLMusicIsland refresh];
+    [self syncHostArrays];
     [[NSNotificationCenter defaultCenter] postNotificationName:@"LLLMusicDataDidChange" object:nil];
 }
 
@@ -146,6 +176,7 @@ static NSString * const kSourceKey = @"LLL.musicSource";
                                                      paths:s.localPaths
                                                    startAt:-1];
             }
+            [s syncHostArrays];
             [[NSNotificationCenter defaultCenter] postNotificationName:@"LLLMusicDataDidChange" object:nil];
         });
     });
@@ -160,6 +191,7 @@ static NSString * const kSourceKey = @"LLL.musicSource";
         [[LLLCloudMusic shared] refreshAccountIfNeeded:^(BOOL ok) {
             __strong typeof(w) s = w;
             if (ok && s) [s reloadCloudLiked];
+            else if (s) [s syncHostArrays];
         }];
         return;
     }
@@ -173,6 +205,7 @@ static NSString * const kSourceKey = @"LLL.musicSource";
 
         if (!songs.count) {
             if (err.length) ShowToast(err, 2.0, YES, YES);
+            [s syncHostArrays];
             [[NSNotificationCenter defaultCenter] postNotificationName:@"LLLMusicDataDidChange" object:nil];
             return;
         }
@@ -181,6 +214,7 @@ static NSString * const kSourceKey = @"LLL.musicSource";
         if (s.kind == LLLMusicSourceKindCloud) {
             [[LLLPlayerCore shared] setCloudQueueSilently:s.cloudSongs];
         }
+        [s syncHostArrays];
         [[NSNotificationCenter defaultCenter] postNotificationName:@"LLLMusicDataDidChange" object:nil];
         ShowToast([NSString stringWithFormat:@"网易云 · %lu 首", (unsigned long)songs.count],
                   1.6, YES, NO);
@@ -203,6 +237,7 @@ static NSString * const kSourceKey = @"LLL.musicSource";
         if (s.kind == LLLMusicSourceKindCloud) {
             [[LLLPlayerCore shared] setCloudQueueSilently:s.cloudSongs];
         }
+        [s syncHostArrays];
         [[NSNotificationCenter defaultCenter] postNotificationName:@"LLLMusicDataDidChange" object:nil];
     }];
 }
