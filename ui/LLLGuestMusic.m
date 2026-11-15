@@ -1,9 +1,9 @@
 //
-//  ui/LLLGuestMusic.m
+//  ui/LLLGuestMusic.m  — 4.0
+//  免登录音源：不登网易云账号也能听免费曲目。
 //
 
 #import "LLLGuestMusic.h"
-#import "LLLCloudRequest.h"
 #import "BaseComponents.h"
 
 static NSString * const kGuestBase = @"https://music.163.com";
@@ -11,6 +11,8 @@ static NSString * const kGuestKey  = @"LLL.guestMode";
 
 @interface LLLGuestMusic ()
 @property (nonatomic, strong) NSURLSession *session;
+- (NSArray<NSDictionary *> *)mapTracks:(NSArray *)tracks;
+- (void)probeURL:(NSURL *)u done:(void (^)(BOOL ok))done;
 @end
 
 @implementation LLLGuestMusic
@@ -31,7 +33,7 @@ static NSString * const kGuestKey  = @"LLL.guestMode";
                             @"Mobile/15E148 Safari/604.1",
             @"Referer"    : kGuestBase,
         };
-        /* 免登录通道**不共享** Cookie，避免被当成"半登录"状态被风控 */
+        /* 免登录通道不共享 Cookie，避免被当成"半登录"状态被风控 */
         cfg.HTTPCookieStorage = nil;
         cfg.HTTPShouldSetCookies = NO;
         cfg.timeoutIntervalForRequest = 15;
@@ -49,7 +51,7 @@ static NSString * const kGuestKey  = @"LLL.guestMode";
 }
 
 + (NSString *)capabilityNote {
-    return @"免登录可听：公开曲库与免费曲目。会员专享曲需要登录账号。";
+    return @"免登录可听公开曲库与免费曲目；会员专享曲需要登录账号。";
 }
 
 #pragma mark - 请求
@@ -87,6 +89,7 @@ static NSString * const kGuestKey  = @"LLL.guestMode";
 
 - (void)probeURL:(NSURL *)u done:(void (^)(BOOL ok))done {
     if (!u) { if (done) done(NO); return; }
+
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:u];
     req.HTTPMethod = @"HEAD";
     req.timeoutInterval = 8;
@@ -212,7 +215,7 @@ static NSString * const kGuestKey  = @"LLL.guestMode";
     NSString *sidStr = songID.stringValue;
     __weak typeof(self) w = self;
 
-    /* 第一档：外链 mp3，游客直接可用，且不会命中会员鉴权 */
+    /* 第一档：外链 mp3，游客直接可用，不走会员鉴权 */
     NSString *outerStr = [NSString stringWithFormat:@"%@/song/media/outer/url?id=%@.mp3",
                           kGuestBase, sidStr];
     NSURL *outer = [NSURL URLWithString:outerStr];
@@ -220,17 +223,17 @@ static NSString * const kGuestKey  = @"LLL.guestMode";
     [self probeURL:outer done:^(BOOL ok) {
         __strong typeof(w) s = w;
         if (!s) return;
+
         if (ok) {
             if (done) done(outer, nil);
             return;
         }
 
-        /* 第二档：明文 player url（无 Cookie，免费曲会给 128k） */
+        /* 第二档：明文 player url（无 Cookie，免费曲给 128k） */
         [s getJSON:@"/api/song/enhance/player/url"
             params:@{ @"ids" : [NSString stringWithFormat:@"[%@]", sidStr], @"br" : @"128000" }
               done:^(id json, NSError *err) {
-            __strong typeof(w2) s2 = s;
-            (void)w2;
+            __strong typeof(w) s2 = w;
             if (!s2) return;
 
             NSString *u = nil;
@@ -251,10 +254,12 @@ static NSString * const kGuestKey  = @"LLL.guestMode";
 
             NSURL *url = [NSURL URLWithString:u];
             if ([url.scheme isEqualToString:@"http"]) {
-                url = [NSURL URLWithString:
-                       [u stringByReplacingOccurrencesOfString:@"http://" withString:@"https://"]] ?: url;
+                NSURL *https = [NSURL URLWithString:
+                                [u stringByReplacingOccurrencesOfString:@"http://" withString:@"https://"]];
+                if (https) url = https;
             }
-            [s probeURL:url done:^(BOOL ok2) {
+
+            [s2 probeURL:url done:^(BOOL ok2) {
                 if (ok2) { if (done) done(url, nil); }
                 else { if (done) done(nil, @"音源校验失败，换一首试试"); }
             }];
