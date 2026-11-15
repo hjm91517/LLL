@@ -228,6 +228,7 @@ static NSString *LLLRandomKey(void) {
 
 - (BOOL)hasCookie;
 - (void)pollOnce;
+- (void)requestQRKey:(NSInteger)type done:(void (^)(NSString *key, NSInteger used))done;
 - (void)fetchAccountThen:(void (^)(BOOL ok, NSString *msg))done;
 - (void)getJSON:(NSString *)path
          params:(NSDictionary<NSString *, NSString *> *)params
@@ -374,6 +375,24 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     _uniKey = nil;
 }
 
+/* 要 unikey：3 = PC 客户端码，1 = 网页/手机码。type=3 拿不到就自动退 1 */
+- (void)requestQRKey:(NSInteger)type done:(void (^)(NSString *key, NSInteger used))done {
+    __weak typeof(self) w = self;
+    [self getJSON:@"/api/login/qrcode/unikey"
+           params:@{ @"type" : [NSString stringWithFormat:@"%ld", (long)type] }
+             done:^(id json, NSError *err) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+        NSString *key = nil;
+        if ([json isKindOfClass:NSDictionary.class]) {
+            key = json[@"unikey"];
+            if (!key) key = json[@"key"];
+        }
+        if (!key.length && type == 3) { [s requestQRKey:1 done:done]; return; }
+        if (done) done(key, type);
+    }];
+}
+
 - (void)startLoginWithQR:(void (^)(UIImage *, NSString *))progress
               completion:(void (^)(BOOL, NSString *))done {
     [self cancelLogin];
@@ -381,51 +400,37 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
     _doneBlock = [done copy];
 
     __weak typeof(self) w = self;
-    /* 先按 PC 客户端（type=3）要 key，拿不到再退回网页/手机（type=1） */
-    __block void (^kick)(NSInteger);
-    __weak void (^weakKick)(NSInteger);
-    kick = weakKick = ^(NSInteger type) {
-        [LLLCloudMusic.shared getJSON:@"/api/login/qrcode/unikey"
-                               params:@{ @"type" : [NSString stringWithFormat:@"%ld", (long)type] }
-                                 done:^(id json, NSError *err) {
-            __strong typeof(w) s = w;
-            if (!s) return;
+    [self requestQRKey:3 done:^(NSString *key, NSInteger used) {
+        __strong typeof(w) s = w;
+        if (!s) return;
 
-            NSString *key = nil;
-            if ([json isKindOfClass:NSDictionary.class]) {
-                key = json[@"unikey"];
-                if (!key) key = json[@"key"];
-            }
-            if (!key.length) {
-                if (type == 3) { if (weakKick) weakKick(1); return; }
-                if (s.doneBlock) s.doneBlock(NO, @"拿不到 unikey，检查网络或接口变化");
-                return;
-            }
+        if (!key.length) {
+            if (s.doneBlock) s.doneBlock(NO, @"拿不到 unikey，检查网络或接口变化");
+            return;
+        }
 
-            gQRType = type;
-            s.uniKey = key;
-            s.pollCount = 0;
+        gQRType = used;
+        s.uniKey = key;
+        s.pollCount = 0;
 
-            NSString *content = [NSString stringWithFormat:@"%@/login?codekey=%@", kBase, key];
-            UIImage *qr = LLLQRImage(content, 220);
-            if (s.progressBlock) {
-                s.progressBlock(qr, (type == 3) ? @"网易云 App 扫一扫（登录电脑版）"
-                                                : @"网易云 App 扫一扫（网页版）");
-            }
+        NSString *content = [NSString stringWithFormat:@"%@/login?codekey=%@", kBase, key];
+        UIImage *qr = LLLQRImage(content, 220);
+        if (s.progressBlock) {
+            s.progressBlock(qr, (used == 3) ? @"网易云 App 扫一扫（登录电脑版）"
+                                            : @"网易云 App 扫一扫（网页版）");
+        }
 
-            dispatch_async(dispatch_get_main_queue(), ^{
-                __strong typeof(w) s2 = w;
-                if (!s2) return;
-                s2.pollTimer = [NSTimer timerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
-                    __strong typeof(w) s3 = w;
-                    if (!s3) { [t invalidate]; return; }
-                    [s3 pollOnce];
-                }];
-                [[NSRunLoop mainRunLoop] addTimer:s2.pollTimer forMode:NSRunLoopCommonModes];
-            });
-        }];
-    };
-    weakKick(3);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s2 = w;
+            if (!s2) return;
+            s2.pollTimer = [NSTimer timerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
+                __strong typeof(w) s3 = w;
+                if (!s3) { [t invalidate]; return; }
+                [s3 pollOnce];
+            }];
+            [[NSRunLoop mainRunLoop] addTimer:s2.pollTimer forMode:NSRunLoopCommonModes];
+        });
+    }];
 }
 
 - (void)pollOnce {
