@@ -7,13 +7,8 @@
 #import "LLLCloudMusic.h"
 #import "LLLNowPlaying.h"
 #import "LLLCloudLogin.h"
-#import "LLLNowPlaying.h"
-#import "LLLCloudLogin.h"
-#import "LLLNowPlaying.h"
-#import "LLLCloudLogin.h"
 #import "EffectInjector.h"
 #import "LLLMusicIsland.h"
-#import <objc/runtime.h>
 #import <objc/runtime.h>
 #import <AVFoundation/AVFoundation.h>
 
@@ -57,11 +52,22 @@ static void (^gLLLCloseCloudCard)(void) = nil;
         [self.playerCover.layer addAnimation:flip forKey:@"flip"];
     }
 
+    /* 同步到灵动岛：标题/播放态/时长都走 LLLNowPlaying，岛只读它 */
+    NSString *showTitle = self.musicNames.count > (NSUInteger)idx ? self.musicNames[(NSUInteger)idx] : path.lastPathComponent;
+    [LLLMusicIsland attachVideo:self.videoMusicPlayer];
+    [[LLLNowPlaying shared] beginTrack:showTitle
+                                artist:(self.videoMusicPlayer ? @"本地视频" : @"本地音乐")
+                               artwork:nil
+                              duration:(self.audioPlayer ? self.audioPlayer.duration : 0)
+                               elapsed:0];
+
     [self updateMusicUI];
     ShowToast([NSString stringWithFormat:@"正在播放: %@", self.musicNames[idx]], 2, YES, NO);
 }
 
 - (void)stopMusic {
+    [LLLMusicIsland attachVideo:nil];
+    [[LLLNowPlaying shared] stop];
     [self.audioPlayer stop];
     self.audioPlayer = nil;
     if (self.videoMusicPlayer) {
@@ -340,8 +346,6 @@ static void (^gSearchClose)(void) = nil;
                 [titles addObject:[NSString stringWithFormat:@"%@ - %@", sg[@"name"], sg[@"artist"]]];
             }
             [self setCloudQueue:songs];
-            [self setCloudQueue:songs];
-            [self setCloudQueue:songs];
             LLLShowList([NSString stringWithFormat:@"“%@” 的结果", kw],
                         [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count],
                         titles, ^(NSInteger idx) {
@@ -395,7 +399,7 @@ static void (^gSearchClose)(void) = nil;
                 return;
             }
             // 列表一次最多渲染 300 条，否则上千个 UIButton 会把主线程干死
-            NSUInteger limit = MIN(songs.count, (NSUInteger)5000);
+            NSUInteger limit = MIN(songs.count, (NSUInteger)300);
             NSMutableArray *titles = [NSMutableArray arrayWithCapacity:limit];
             for (NSUInteger i = 0; i < limit; i++) {
                 NSDictionary *sg = songs[i];
@@ -405,8 +409,6 @@ static void (^gSearchClose)(void) = nil;
                 ? [NSString stringWithFormat:@"共 %lu 首，先显示前 %lu 首", (unsigned long)songs.count, (unsigned long)limit]
                 : [NSString stringWithFormat:@"共 %lu 首", (unsigned long)songs.count];
 
-            [self setCloudQueue:songs];
-            [self setCloudQueue:songs];
             [self setCloudQueue:songs];
             LLLShowList(@"我喜欢的音乐", msg, titles, ^(NSInteger idx) {
                 if (idx >= 0 && idx < (NSInteger)limit) [self playCloudSong:songs[(NSUInteger)idx]];

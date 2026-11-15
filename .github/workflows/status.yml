@@ -1,0 +1,38 @@
+name: CI Status
+
+on:
+  workflow_run:
+    workflows: [ "Build Dylib" ]
+    types: [ completed ]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RID: ${{ github.event.workflow_run.id }}
+          CONC: ${{ github.event.workflow_run.conclusion }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BR: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -uo pipefail
+          echo "conclusion=$CONC sha=$SHA branch=$BR"
+          {
+            echo "**$CONC** · \`${SHA:0:7}\` · $BR"
+            if [ "$CONC" != "success" ]; then
+              gh run view "$RID" --repo "${{ github.repository }}" --log-failed > /tmp/f.log 2>&1 || \
+                gh run view "$RID" --repo "${{ github.repository }}" --log > /tmp/f.log 2>&1 || true
+              echo '```'
+              grep -nE "error:|fatal error|undefined symbol|Traceback|SKIP|patch " /tmp/f.log | head -40 || true
+              echo '--- tail ---'
+              tail -25 /tmp/f.log || true
+              echo '```'
+            fi
+          } > /tmp/b.md
+          gh issue comment 2 --repo "${{ github.repository }}" --body-file /tmp/b.md || true

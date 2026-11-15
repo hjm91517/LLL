@@ -1,8 +1,5 @@
 #
 # bbhj online - 资源注入器
-# Theos 工程定义
-#
-# 注意：文件名必须是 Makefile（不是 Makefile.make），否则 make 根本读不到。
 #
 
 ifeq ($(THEOS),)
@@ -24,23 +21,40 @@ bbhj_online_FILES = \
     core/ResourceManager.m \
     core/EffectInjector.m \
     core/CacheCleaner.m \
+    core/LLLPlayerCore.m \
+    core/LLLStealth.m \
+    core/LLLZip.m \
     overlay/FloatMonitor.m \
     overlay/LLLNowPlaying.m \
+    overlay/LLLIslandCoreBridge.m \
     overlay/LLLMusicIsland.m \
+    overlay/LLLMusicIsland4.m \
+    overlay/LLLMusicIsland4_Hook.m \
+    overlay/LLLMusicIsland4_Compat.m \
+    overlay/LLLMusicIslandBridge4.m \
     ui/MainViewController.m \
     ui/MainViewController+SettingsBackground.m \
     ui/MainViewController+Features.m \
+    ui/MainViewController+Music4.m \
+    ui/MainViewController+MusicUI4.m \
+    ui/MainViewController+CloudDaily4.m \
+    ui/MainViewController+Legacy4Shim.m \
+    ui/LLLMusicTab4.m \
+    ui/LLLMusicController.m \
     ui/LLLUiKit.m \
+    ui/LLLCloudRequest.m \
+    ui/LLLCloudVIP.m \
+    ui/LLLGuestMusic.m \
+    ui/LLLGuestPanel.m \
     ui/LLLCloudMusic.m \
     ui/LLLCloudLogin.m \
+    ui/LLLWebLogin.m \
     ui/LLLLaunchCard.m \
-    core/LLLStealth.m \
-    core/LLLZip.m \
     Entry.m
 
-# ImageIO 必须显式链接：BaseComponents.m 用 CGImageSourceCreateWithURL 做缩略图，
-# 不写 -framework ImageIO 在真机上会走不到，链接期也容易莫名 undefined。
-bbhj_online_FRAMEWORKS = UIKit Foundation AVFoundation PhotosUI ImageIO CoreImage CoreGraphics Security Security Security
+# ImageIO：BaseComponents.m 用 CGImageSourceCreateWithURL 做缩略图
+# WebKit：网页登录
+bbhj_online_FRAMEWORKS = UIKit Foundation AVFoundation PhotosUI ImageIO CoreImage CoreGraphics Security WebKit
 
 bbhj_online_CFLAGS = \
     -fobjc-arc \
@@ -54,6 +68,6 @@ bbhj_online_CFLAGS = \
     -I. -I./core -I./overlay -I./ui
 
 # ___isPlatformVersionAtLeast 是 @available 展开出来的符号，老设备上要允许未定义
-bbhj_online_LDFLAGS = -Wl,-U,___isPlatformVersionAtLeast -lz -lz -lz
+bbhj_online_LDFLAGS = -Wl,-U,___isPlatformVersionAtLeast -lz
 
 include $(THEOS_MAKE_PATH)/tweak.mk

@@ -1,6 +1,7 @@
 
 #import "CacheCleaner.h"
 #import "BaseComponents.h"
+#import "LLLMusicIsland.h"
 #import <UIKit/UIKit.h>
 
 static UIImage* si(NSString *name) {
@@ -12,26 +13,34 @@ static UIImage* si(NSString *name) {
 
 static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
                NSMutableArray *ok, NSMutableArray *bad, NSUInteger *found,
-               NSString *excludeDir) {
+               NSString *excludeDir, NSUInteger cap, NSUInteger *scanned) {
+    if (*scanned >= cap) return;
     NSDirectoryEnumerator *e = [fm enumeratorAtPath:dir];
     for (NSString *p in e) {
-        NSString *fp = [dir stringByAppendingPathComponent:p];
-        if (excludeDir && [fp hasPrefix:excludeDir]) {
-            BOOL exDir = NO;
-            if ([fm fileExistsAtPath:fp isDirectory:&exDir] && exDir) [e skipDescendants];
-            continue;
-        }
-        BOOL isDir;
-        if ([fm fileExistsAtPath:fp isDirectory:&isDir] && !isDir) {
-            NSString *n = p.lastPathComponent;
-            if ([regex rangeOfFirstMatchInString:n options:0 range:NSMakeRange(0, n.length)].location != NSNotFound) {
-                (*found)++;
-                NSError *err = nil;
-                if ([fm removeItemAtPath:fp error:&err])
-                    [ok addObject:fp];
-                else {
-                    [bad addObject:fp];
-                    NSLog(@"[CacheCleaner] 删除失败: %@, 错误: %@", fp, err.localizedDescription);
+        @autoreleasepool {
+            /* 【卡顿修复】packcache 可能有几万文件：每轮限量 + 每次迭代
+             * autoreleasepool，防止一次性扫描把内存/I/O 打爆导致整机卡顿；
+             * 本轮扫不完下一轮(30s)继续。 */
+            if (*scanned >= cap) return;
+            (*scanned)++;
+            NSString *fp = [dir stringByAppendingPathComponent:p];
+            if (excludeDir && [fp hasPrefix:excludeDir]) {
+                BOOL exDir = NO;
+                if ([fm fileExistsAtPath:fp isDirectory:&exDir] && exDir) [e skipDescendants];
+                continue;
+            }
+            BOOL isDir;
+            if ([fm fileExistsAtPath:fp isDirectory:&isDir] && !isDir) {
+                NSString *n = p.lastPathComponent;
+                if ([regex rangeOfFirstMatchInString:n options:0 range:NSMakeRange(0, n.length)].location != NSNotFound) {
+                    (*found)++;
+                    NSError *err = nil;
+                    if ([fm removeItemAtPath:fp error:&err])
+                        [ok addObject:fp];
+                    else {
+                        [bad addObject:fp];
+                        NSLog(@"[CacheCleaner] 删除失败: %@, 错误: %@", fp, err.localizedDescription);
+                    }
                 }
             }
         }
@@ -150,6 +159,7 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
 
 @interface KLM : NSObject
 @property (atomic, assign) BOOL run;
+@property (atomic, assign) BOOL manual;   /* 灵动岛按钮等手动触发的一轮清理 */
 @property (atomic, assign) NSUInteger total;
 @property (atomic, assign) BOOL busy;
 @property (nonatomic, strong) NSTimer *cleanTimer;
@@ -198,7 +208,9 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
 }
 
 - (void)clean {
-    if (!self.run || self.busy) return;
+    /* 自动监控（run）和手动一轮（manual）都能进；busy 只防重入 */
+    if (self.busy) return;
+    if (!self.run && !self.manual) return;
     self.busy = YES;
 
     NSString *injectedDir = targetPath();
@@ -207,17 +219,21 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
     }
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+      @try {
         NSFileManager *fm = NSFileManager.defaultManager;
         NSMutableArray *ok = [NSMutableArray new];
         NSMutableArray *bad = [NSMutableArray new];
         NSUInteger found = 0;
         NSRegularExpression *regex = killenRegex();
         NSString *base = neteaseGameBasePath();
+        /* 【卡顿修复】每轮最多扫 5000 个文件，扫不完下轮继续，避免一次性 I/O 风暴 */
+        NSUInteger cap = 5000, scanned = 0;
 
         for (NSString *sub in @[@"resource_packs", @"packcache", @"storge"]) {
             NSString *dir = [base stringByAppendingPathComponent:sub];
+            if (scanned >= cap) break;
             if ([fm fileExistsAtPath:dir]) {
-                sd(dir, regex, fm, ok, bad, &found, injectedDir);
+                sd(dir, regex, fm, ok, bad, &found, injectedDir, cap, &scanned);
             }
         }
 
@@ -225,8 +241,16 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
 
         dispatch_async(dispatch_get_main_queue(), ^{
             self.busy = NO;
+            if (found > 0) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    if (self.run || self.manual) [self clean];
+                });
+            } else {
+                self.manual = NO;   /* 一轮扫完没货了，手动模式收工 */
+            }
             if (found == 0) {
-                [self showDynamicIslandWithTitle:@"无缓存" count:0 isError:NO];
+                // 2.5: 无缓存时静默，不弹胶囊
             } else {
                 [self showDynamicIslandWithTitle:@"发现缓存" count:found isError:NO];
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -241,6 +265,11 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
                 });
             }
         });
+      } @catch (NSException *e) {
+        NSLog(@"[CacheCleaner] 清理异常: %@", e.reason);
+        self.manual = NO;
+        dispatch_async(dispatch_get_main_queue(), ^{ self.busy = NO; });
+      }
     });
 }
 
@@ -262,30 +291,8 @@ static void sd(NSString *dir, NSRegularExpression *regex, NSFileManager *fm,
 }
 
 - (void)showDynamicIslandWithTitle:(NSString *)title count:(NSUInteger)count isError:(BOOL)err {
-    UIWindow *window = [self keyWindow];
-    if (!window) return;
-
-    if (!self.dynamicIslandView) {
-        self.dynamicIslandView = [[KIV alloc] init];
-        CGFloat topInset = window.safeAreaInsets.top > 0 ? window.safeAreaInsets.top : 20;
-        CGFloat centerX = window.bounds.size.width / 2;
-        self.dynamicIslandView.center = CGPointMake(centerX, topInset + 19);
-        [window addSubview:self.dynamicIslandView];
-        [self.dynamicIslandView present];
-    }
-
-    [self.dynamicIslandView updateStatus:title count:count isError:err];
-
-    CGSize titleSize = [title sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:12 weight:UIFontWeightMedium]}];
-    CGSize countSize = [[NSString stringWithFormat:@"%lu", (unsigned long)count] sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:14 weight:UIFontWeightBold]}];
-    CGFloat width = 12 + 20 + 6 + titleSize.width + 8 + MAX(countSize.width, 40) + 12;
-    width = MAX(160, MIN(width, window.bounds.size.width - 40));
-    CGRect frame = self.dynamicIslandView.frame;
-    frame.size.width = width;
-    self.dynamicIslandView.frame = frame;
-
-    CGFloat topInset = window.safeAreaInsets.top > 0 ? window.safeAreaInsets.top : 20;
-    self.dynamicIslandView.center = CGPointMake(window.bounds.size.width / 2, topInset + 19);
+    /* 【合并】不再自建第二个胶囊岛：缓存清理状态统一显示在音乐灵动岛上 */
+    [LLLMusicIsland showCacheStatus:title count:count isError:err];
 }
 @end
 
@@ -316,6 +323,14 @@ void setCacheCleanerEnabled(BOOL enabled) {
     } else {
         [[KLM shared] stop];
     }
+}
+
+/* v2.2 灵动岛「清缓存」按钮：手动触发一轮清理（不需要开启自动监控） */
+void LLLCacheCleanNow(void) {
+    KLM *m = [KLM shared];
+    if (m.busy) return;
+    m.manual = YES;
+    [m clean];
 }
 
 BOOL isCacheCleanerEnabled(void) {

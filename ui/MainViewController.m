@@ -7,7 +7,9 @@
 #import "LLLAnim.h"
 #import "LLLUiKit.h"
 #import "LLLCloudMusic.h"
+#import "LLLCloudLogin.h"
 #import "LLLMusicIsland.h"
+#import "LLLNowPlaying.h"
 #import <objc/runtime.h>
 
 #import "MainViewController+SettingsBackground.h"
@@ -127,6 +129,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         _pln  = [NSMutableArray new]; _plp  = [NSMutableArray new];
         _plqn = [NSMutableArray new]; _plqp = [NSMutableArray new];
         _musicNames = @[];
+        _cloudSongs = @[];
         _musicPaths = @[];
         _currentMusicIndex = -1;
         _loopModeSingle = NO;
@@ -170,12 +173,19 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [self.view addSubview:_cardView];
 
     CGFloat margin = 20;
+    /* 【占全屏 / 刘海遮挡修复】卡片上下留出安全区：以前顶部只留 20pt，
+       全面屏上标题和 tab 直接压在状态栏/灵动岛下面，看着像"被占满屏"还点不到 */
+    NSLayoutConstraint *ct = [_cardView.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:margin];
+    NSLayoutConstraint *cb = [_cardView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-margin];
     [NSLayoutConstraint activateConstraints:@[
         [_cardView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:margin],
         [_cardView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-margin],
-        [_cardView.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:margin],
-        [_cardView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-margin]
+        ct,
+        cb
     ]];
+    objc_setAssociatedObject(self, "lllCardTop", ct, OBJC_ASSOCIATION_RETAIN);
+    objc_setAssociatedObject(self, "lllCardBottom", cb, OBJC_ASSOCIATION_RETAIN);
+    [self lllApplySafeAreaPadding];
 
     _bgImageView = [[UIImageView alloc] init];
     _bgImageView.contentMode = UIViewContentModeScaleAspectFill;
@@ -311,9 +321,22 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     }
 
     [self setupPlayerCard];
+
+    _musicSrcSeg = [[UISegmentedControl alloc] initWithItems:@[@"本地音乐", @"网易云"]];
+    _musicSrcSeg.selectedSegmentIndex = [[NSUserDefaults standardUserDefaults] integerForKey:@"LLL.musicSource"];
+    _musicSrcSeg.selectedSegmentTintColor = LLLAccentColor();
+    _musicSrcSeg.translatesAutoresizingMaskIntoConstraints = NO;
+    [_musicSrcSeg addTarget:self action:@selector(musicSourceChanged:) forControlEvents:UIControlEventValueChanged];
+    [cv addSubview:_musicSrcSeg];
+
     [cv addSubview:_musict];
     [NSLayoutConstraint activateConstraints:@[
-        [_musict.topAnchor constraintEqualToAnchor:_playerCard.bottomAnchor constant:6],
+        [_musicSrcSeg.topAnchor constraintEqualToAnchor:_playerCard.bottomAnchor constant:6],
+        [_musicSrcSeg.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor constant:10],
+        [_musicSrcSeg.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor constant:-10],
+        [_musicSrcSeg.heightAnchor constraintEqualToConstant:32],
+
+        [_musict.topAnchor constraintEqualToAnchor:_musicSrcSeg.bottomAnchor constant:6],
         [_musict.leadingAnchor constraintEqualToAnchor:cv.leadingAnchor],
         [_musict.trailingAnchor constraintEqualToAnchor:cv.trailingAnchor]
     ]];
@@ -704,11 +727,6 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     UIButton *next = [self playerButton:@"forward.fill" size:20 side:44 action:@selector(nextMusic)];
     _playerModeBtn = [self playerButton:@"repeat" size:18 side:44 action:@selector(switchLoopMode)];
 
-    // 网易云入口（登录 / 我喜欢的 / 搜索）
-    _playerCloudBtn = [self playerButton:@"cloud.fill" size:15 side:34 action:@selector(openCloudMusic)];
-    _playerCloudBtn.backgroundColor = [LLLAccentColor() colorWithAlphaComponent:0.28];
-    [_playerCard addSubview:_playerCloudBtn];
-
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[prev, _playerPlayBtn, next, _playerModeBtn]];
     row.translatesAutoresizingMaskIntoConstraints = NO;
     row.axis = UILayoutConstraintAxisHorizontal;
@@ -759,10 +777,8 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         [_playerCover.heightAnchor constraintEqualToConstant:84],
 
         [_playerTitle.leadingAnchor constraintEqualToAnchor:_playerCover.trailingAnchor constant:14],
-        [_playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:_playerCloudBtn.leadingAnchor constant:-10],
+        [_playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:_playerCard.trailingAnchor constant:-16],
 
-        [_playerCloudBtn.trailingAnchor constraintEqualToAnchor:_playerCard.trailingAnchor constant:-16],
-        [_playerCloudBtn.topAnchor constraintEqualToAnchor:_playerCard.topAnchor constant:18],
         [_playerTitle.topAnchor constraintEqualToAnchor:_playerCover.topAnchor constant:8],
 
         [_playerArtist.leadingAnchor constraintEqualToAnchor:_playerTitle.leadingAnchor],
@@ -838,6 +854,31 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [self stopVideoBackground];
 }
 
+#pragma mark - 安全区
+
+/* 卡片上下边距跟着安全区走：window.safeAreaInsets 在"挂到游戏根视图"时可能为 0，
+   那就退到自己 view 的 safeAreaInsets；两个都是 0 时按全面屏兜底 34/18。 */
+- (void)lllApplySafeAreaPadding {
+    NSLayoutConstraint *ct = objc_getAssociatedObject(self, "lllCardTop");
+    NSLayoutConstraint *cb = objc_getAssociatedObject(self, "lllCardBottom");
+    if (!ct || !cb) return;
+
+    UIEdgeInsets si = UIEdgeInsetsZero;
+    if (@available(iOS 11.0, *)) {
+        si = self.view.window.safeAreaInsets;
+        if (si.top <= 0.5 && si.bottom <= 0.5) si = self.view.safeAreaInsets;
+    }
+    CGFloat top = 20 + MAX(si.top, (CGFloat)34);
+    CGFloat bottom = 20 + MAX(si.bottom, (CGFloat)18);
+    if (fabs(ct.constant - top) > 0.5) ct.constant = top;
+    if (fabs(cb.constant + bottom) > 0.5) cb.constant = -bottom;
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self lllApplySafeAreaPadding];
+}
+
 #pragma mark - 按钮工厂
 
 - (void)bgTapped:(UITapGestureRecognizer *)gr {
@@ -904,9 +945,6 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     if (_bars) {
         _bars.barColor = accent;
         [_bars setNeedsDisplay];
-    }
-    if (_playerCloudBtn) {
-        _playerCloudBtn.backgroundColor = [accent colorWithAlphaComponent:0.28];
     }
     if (_playerPlayBtn) {
         _playerPlayBtn.backgroundColor = accent;
@@ -1065,25 +1103,68 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 }
 
 - (void)showSrcTab {
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     [self setHeader:@"材质包" sub:[NSString stringWithFormat:@"目标 · %@", targetPathDisplayName()]];
     [self reloadSrcData];
     [self switchTo:self.st hide:@[self.qt, self.pt, self.pqt, self.musict] bar:nil];
 }
 
 - (void)showQueueTab {
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     [self setHeader:@"注入队列" sub:[NSString stringWithFormat:@"%lu 项待注入", (unsigned long)self.qn.count]];
     [self switchTo:self.qt hide:@[self.st, self.pt, self.pqt, self.musict] bar:self.ab];
 }
 
 - (void)showPluginTab {
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     [self setHeader:@"MCP 插件" sub:[NSString stringWithFormat:@"%lu 项可用", (unsigned long)self.pln.count]];
     [self reloadPluginData];
     [self switchTo:self.pt hide:@[self.st, self.qt, self.pqt, self.musict] bar:nil];
 }
 
 - (void)showPluginQueueTab {
+    self.playerCard.hidden = YES;
+    if (self.playerHeight) self.playerHeight.constant = 0;
+
     [self setHeader:@"插件注入" sub:[NSString stringWithFormat:@"%lu 项待注入", (unsigned long)self.plqn.count]];
     [self switchTo:self.pqt hide:@[self.st, self.qt, self.pt, self.musict] bar:self.pab];
+}
+
+- (void)musicSourceChanged:(UISegmentedControl *)seg {
+    [[NSUserDefaults standardUserDefaults] setInteger:seg.selectedSegmentIndex forKey:@"LLL.musicSource"];
+    [self reloadMusicTab];
+}
+
+- (void)reloadMusicTab {
+    if (!_musicSrcSeg) return;
+    if (_musicSrcSeg.selectedSegmentIndex == 0) {
+        [self reloadMusicData];
+        return;
+    }
+    if (![LLLCloudMusic shared].loggedIn) {
+        ShowToast(@"先登录网易云", 1.6, YES, YES);
+        self.cloudSongs = @[];
+        [self.musict reloadData];
+        return;
+    }
+    [self setHeader:@"音乐播放器" sub:@"正在拉取「我喜欢的音乐」…"];
+    __weak typeof(self) w = self;
+    [[LLLCloudMusic shared] loadLikedSongs:^(NSArray<NSDictionary *> *songs, NSString *err) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (!s) return;
+            s.cloudSongs = songs ?: @[];
+            [s setHeader:@"音乐播放器" sub:[NSString stringWithFormat:@"网易云 · %lu 首", (unsigned long)s.cloudSongs.count]];
+            [s.musict reloadData];
+            if (err.length) ShowToast(err, 2.0, YES, YES);
+        });
+    }];
 }
 
 - (void)showMusicTab {
@@ -1091,6 +1172,16 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     [self setHeader:@"音乐播放器" sub:[NSString stringWithFormat:@"%lu 首", (unsigned long)self.musicNames.count]];
     [self reloadMusicData];
     [self startProgressTimer];
+
+    /* 【修复】进入音乐页必须展开播放器卡片并显示控制栏。
+       此前从未恢复：卡片 hidden=YES 且 playerHeight 恒为 0 → 音乐页全空 */
+    self.playerCard.hidden = NO;
+    if (self.playerHeight) self.playerHeight.constant = 310;
+    // 2.4: 只留 playerCard 一套播放 UI
+    self.musicControlBar.hidden = YES;
+    self.musicControlBar.alpha = 0;
+
+    [self reloadMusicTab];
     [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
 
     // 切换之后再记一次，这次是真实布局状态
@@ -1106,6 +1197,14 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 }
 
 - (void)showSettingsTab {
+    /* v3.1: 清掉任何残留的全屏遮罩，并把自己的面板提到最前，否则设置页看着在、其实点不到 */
+    for (UIWindow *w in UIApplication.sharedApplication.windows) {
+        for (UIView *v in [w.rootViewController.view.subviews copy]) {
+            if (v.tag == 99131 || v.tag == 99141) [v removeFromSuperview];
+        }
+    }
+    [self.view bringSubviewToFront:self.settingsView];
+    self.settingsView.userInteractionEnabled = YES;
     // 已经在设置页了，点多少次都别重播动画
     if (!self.settingsView.hidden && self.settingsView.alpha > 0.9) return;
 
@@ -1331,6 +1430,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
         cur = CMTimeGetSeconds(self.cloudPlayer.currentTime);
     }
     if (total > 0.01 && !isnan(total)) {
+        [[LLLNowPlaying shared] updateElapsed:cur duration:total];
         if (_progressSlider && !_progressSlider.isTracking)
             _progressSlider.value = (float)(cur / total);
         if (_playerProgress && !_playerProgress.isTracking)
@@ -1429,7 +1529,7 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     if (tv == self.qt) return self.qn.count;
     if (tv == self.pt) return self.pln.count;
     if (tv == self.pqt) return self.plqn.count;
-    if (tv == self.musict) return self.musicNames.count;
+    if (tv == self.musict) return (_musicSrcSeg.selectedSegmentIndex == 1) ? self.cloudSongs.count : self.musicNames.count;
     return 0;
 }
 
@@ -1471,9 +1571,16 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
     }
     if (tv == self.musict) {
         PackCell *c = [tv dequeueReusableCellWithIdentifier:@"music" forIndexPath:ip];
-        c.title.text = self.musicNames[ip.row];
+        BOOL cloud = (_musicSrcSeg.selectedSegmentIndex == 1);
+        if (cloud) {
+            NSDictionary *sg = (ip.row < (NSInteger)self.cloudSongs.count) ? self.cloudSongs[ip.row] : nil;
+            c.title.text = sg[@"name"] ?: @"";
+            c.sub.text = sg[@"artist"] ?: @"网易云音乐";
+        } else {
+            c.title.text = self.musicNames[ip.row];
+            c.sub.text = @"音频文件";
+        }
         c.title.adjustsFontSizeToFitWidth = YES; c.title.minimumScaleFactor = 0.6;
-        c.sub.text = @"音频文件";
         if (@available(iOS 13.0, *)) { c.icon.image = [UIImage systemImageNamed:@"music.note"]; c.icon.tintColor = kAccentGreen; c.icon.contentMode = UIViewContentModeCenter; }
         [c.btn removeTarget:self action:NULL forControlEvents:UIControlEventTouchUpInside];
         [c.btn setImage:[UIImage systemImageNamed:@"play.circle.fill"] forState:UIControlStateNormal];
@@ -1485,7 +1592,14 @@ static NSArray<NSDictionary *> *LLLParseLRC(NSString *path) {
 }
 
 - (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
-    if (tv == self.musict) { [self playMusicAtIndex:ip.row]; [tv deselectRowAtIndexPath:ip animated:YES]; }
+    if (tv == self.musict) {
+        if (_musicSrcSeg.selectedSegmentIndex == 1) {
+            if (ip.row < (NSInteger)self.cloudSongs.count) [self playCloudSong:self.cloudSongs[ip.row]];
+        } else {
+            [self playMusicAtIndex:ip.row];
+        }
+        [tv deselectRowAtIndexPath:ip animated:YES];
+    }
 }
 
 - (CGFloat)tableView:(UITableView *)tv heightForRowAtIndexPath:(NSIndexPath *)ip {

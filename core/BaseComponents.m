@@ -1,5 +1,6 @@
 #import "BaseComponents.h"
 #import "LLLAnim.h"
+#import "PluginInfo.h"
 #import <ImageIO/ImageIO.h>
 #import <CommonCrypto/CommonCrypto.h>
 #import <objc/runtime.h>
@@ -1342,6 +1343,13 @@ static MaterialHUD *g_hud;
     }
     return self;
 }
+/* 【交互修复】透明覆盖窗口全屏常驻时，触摸落在根视图（无实际内容）会被窗口吞掉，
+ * 表现为「UI 看得见但什么都点不了」。落点不在真实内容控件上时放行给下层窗口。 */
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hit = [super hitTest:point withEvent:event];
+    if (hit == self || (hit && hit == self.rootViewController.view)) return nil;
+    return hit;
+}
 @end
 
 static NSString * const kLLLWatermarkText = @"\u8c6a\u86a7\u4e8c\u6539 \u00b7 \u4e91\u843d\u5236\u4f5c QQ\u7fa4:1071596112";
@@ -1396,7 +1404,7 @@ static NSString * const kLLLWatermarkText = @"\u8c6a\u86a7\u4e8c\u6539 \u00b7 \u
         [_gradientLayer addAnimation:flow forKey:@"lll.gradient.flow"];
 
         _textLayer = [CATextLayer layer];
-        _textLayer.string = kLLLWatermarkText;
+        _textLayer.string = [kLLLWatermarkText stringByAppendingFormat:@" · v%@", kPluginVersion];
         _textLayer.fontSize = 14;
         _textLayer.alignmentMode = kCAAlignmentCenter;
         _textLayer.foregroundColor = [UIColor whiteColor].CGColor;

@@ -38,8 +38,6 @@ UIImage* errorImage(void);
 UIImage* floatIcon(void);
 UIImage* customFloatIcon(void);
 NSString* customFloatIconPath(void);
-NSString* customFloatIconPath(void);
-NSString* customFloatIconPath(void);
 UIImage* cachedIcon(NSString *path, BOOL hasIcon);
 
 NSString* docsPath(void);

@@ -7,6 +7,7 @@
 
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
+#import <mach/mach.h>
 #import <sys/mman.h>
 #import <unistd.h>
 #import <string.h>
@@ -17,18 +18,43 @@
 
 #pragma mark - 镜像名伪装
 
-typedef const char *(*LLLImageNameFn)(uint32_t);
+/*
+ * 【崩溃根修】旧实现在 hook 里用 dlsym(RTLD_NEXT, "dyld_get_image_name") 找原函数，
+ * 但 Darwin 的 dlsym 解析符号时会命中 __interpose 表，把「替换函数自己」还回来，
+ * 导致 real(index) = LLLFakeImageName(index) 无限自调
+ * （崩溃日志：30709 层递归 → SIGSEGV，发生在 dyld 初始化阶段）。
+ *
+ * 新实现：直接读 task_info(TASK_DYLD_INFO) 的 dyld_all_image_infos 镜像表，
+ * 全程不调用被 interpose 的符号、不用 dlsym，结构上不可能递归。
+ */
+typedef struct {
+    const void *loadAddress;
+    const char *imageFilePath;
+    const void *imageLoadAddress;
+} LLLDyldImageInfo;
+
+typedef struct {
+    uint32_t version;
+    uint32_t infoArrayCount;
+    const LLLDyldImageInfo *infoArray;
+} LLLDyldInfosHead;
+
+static const char *LLLRealImageName(uint32_t index) {
+    task_dyld_info_data_t tinfo;
+    mach_msg_type_number_t cnt = TASK_DYLD_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_DYLD_INFO, (task_info_t)&tinfo, &cnt) != KERN_SUCCESS)
+        return NULL;
+    if (tinfo.all_image_info_addr == 0)
+        return NULL;
+    const LLLDyldInfosHead *aii = (const LLLDyldInfosHead *)(uintptr_t)tinfo.all_image_info_addr;
+    if (!aii->infoArray || index >= aii->infoArrayCount)
+        return NULL;
+    return aii->infoArray[index].imageFilePath;
+}
 
 static const char *LLLFakeImageName(uint32_t index) {
-    static LLLImageNameFn real;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        real = (LLLImageNameFn)dlsym(RTLD_NEXT, "dyld_get_image_name");
-        if (!real) real = (LLLImageNameFn)dlsym(RTLD_DEFAULT, "_dyld_get_image_name");
-    });
-
-    const char *n = real ? real(index) : NULL;
-    if (!n) return n;
+    const char *n = LLLRealImageName(index);
+    if (!n) return NULL;
     if (strstr(n, "bbhj") || strstr(n, "MaterialPackManager") ||
         strstr(n, "LLLOnline") || strstr(n, "LLL_")) {
         return "/usr/lib/libobjc.A.dylib";
@@ -44,6 +70,43 @@ static const LLLInterpose LLLInterposeImageName
         (const void *)&LLLFakeImageName,
         (const void *)&_dyld_get_image_name
     };
+
+#pragma mark - 裸 stat / access 隐藏
+
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
+static BOOL LLLHideCPath(const char *p) {
+    if (!p || !strstr(p, ".dylib")) return NO;
+    return strstr(p, "bbhj") || strstr(p, "lll_") || strstr(p, "LLL_") ||
+           strstr(p, "MaterialPackManager");
+}
+
+static int LLLFakeStat(const char *path, struct stat *buf) {
+    if (LLLHideCPath(path)) { errno = ENOENT; return -1; }
+    return fstatat(AT_FDCWD, path, buf, 0);
+}
+
+static int LLLFakeLstat(const char *path, struct stat *buf) {
+    if (LLLHideCPath(path)) { errno = ENOENT; return -1; }
+    return fstatat(AT_FDCWD, path, buf, AT_SYMLINK_NOFOLLOW);
+}
+
+static int LLLFakeAccess(const char *path, int mode) {
+    if (LLLHideCPath(path)) { errno = ENOENT; return -1; }
+    return faccessat(AT_FDCWD, path, mode, 0);
+}
+
+__attribute__((used)) static const LLLInterpose LLLInterposeStat
+    __attribute__((section("__DATA,__interpose"))) = {
+        (const void *)&LLLFakeStat, (const void *)&stat };
+__attribute__((used)) static const LLLInterpose LLLInterposeLstat
+    __attribute__((section("__DATA,__interpose"))) = {
+        (const void *)&LLLFakeLstat, (const void *)&lstat };
+__attribute__((used)) static const LLLInterpose LLLInterposeAccess
+    __attribute__((section("__DATA,__interpose"))) = {
+        (const void *)&LLLFakeAccess, (const void *)&access };
 
 #pragma mark - 文件枚举过滤
 

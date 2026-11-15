@@ -7,8 +7,20 @@
 #import "LLLAnim.h"
 #import "PluginInfo.h"
 #import "AppTheme.h"
+#import "LLLUiKit.h"
+#import "BaseComponents.h"
 
 static UIWindow *gLaunchWin = nil;
+
+/* 普通 UIWindow 透明全屏常驻会把触摸全吃掉（登录/设置都点不了） */
+@interface LLLCardWin : UIWindow @end
+@implementation LLLCardWin
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *h = [super hitTest:point withEvent:event];
+    if (h == self || (h && h == self.rootViewController.view)) return nil;
+    return h;
+}
+@end
 
 static UIWindow *LLLCardWindow(void) {
     if (gLaunchWin) return gLaunchWin;
@@ -21,8 +33,8 @@ static UIWindow *LLLCardWindow(void) {
             break;
         }
     }
-    gLaunchWin = scene ? [[UIWindow alloc] initWithWindowScene:scene]
-                       : [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    gLaunchWin = scene ? [[BaseOverlayWindow alloc] initWithWindowScene:scene]
+                       : [[BaseOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     gLaunchWin.windowLevel = UIWindowLevelAlert - 1;
     gLaunchWin.backgroundColor = UIColor.clearColor;
     gLaunchWin.rootViewController = [UIViewController new];
@@ -109,8 +121,19 @@ void LLLLaunchSetProgress(CGFloat p, NSString *status) {
                         if (!gLCard) return;
                         UIView *card = gLCard;
                         gLCard = nil;
-                        [UIView animateWithDuration:0.3 animations:^{ card.alpha = 0; }
-                                         completion:^(BOOL f) { [card removeFromSuperview]; }];
+                        /* 【交互修复】连同遮罩一起移除，并隐藏窗口：
+                         * 否则透明窗口+暗色遮罩常驻 → 全屏触摸黑洞 */
+                        UIView *host = card.superview;
+                        [UIView animateWithDuration:0.3 animations:^{
+                            card.alpha = 0;
+                            for (UIView *v in host.subviews)
+                                if (v.tag == 99131 || v.tag == 99141) v.alpha = 0;
+                        } completion:^(BOOL f) {
+                            [card removeFromSuperview];
+                            for (UIView *v in host.subviews)
+                                if (v.tag == 99131 || v.tag == 99141) [v removeFromSuperview];
+                            gLaunchWin.hidden = YES;
+                        }];
                     } @catch (__unused NSException *e) { }
                 });
             }
@@ -191,7 +214,9 @@ void LLLShowLaunch(void) {
             gLDone = NO;
             LLLaunchRefresh();
 
-            card.center = CGPointMake(host.bounds.size.width / 2, host.bounds.size.height / 2);
+            card.center = CGPointMake(LLLUIKitHostSize(host).width / 2, LLLUIKitHostSize(host).height / 2);
+            card.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
+                                  | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
             LLLSpring(0.34, 0.86, ^{ card.alpha = 1; card.transform = CGAffineTransformIdentity; });
 
             gLTimer = [NSTimer timerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *t) {
@@ -325,7 +350,9 @@ void LLLProgressShow(NSString *title) {
                forControlEvents:UIControlEventTouchUpInside];
             [card addSubview:cancelBtn];
 
-            card.center = CGPointMake(host.bounds.size.width / 2, host.bounds.size.height / 2);
+            card.center = CGPointMake(LLLUIKitHostSize(host).width / 2, LLLUIKitHostSize(host).height / 2);
+            card.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
+                                  | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
             card.alpha = 0;
             card.transform = CGAffineTransformMakeScale(0.94, 0.94);
             LLLSpring(0.32, 0.86, ^{ card.alpha = 1; card.transform = CGAffineTransformIdentity; });
@@ -380,6 +407,8 @@ void LLLProgressHide(void) {
                              completion:^(BOOL f) {
                 [card removeFromSuperview];
                 [dim removeFromSuperview];
+                gLaunchWin.hidden = YES;
+                gLaunchWin.hidden = YES;   /* 【交互修复】内容清空后必须藏窗，否则吞掉全部触摸 */
             }];
         } @catch (__unused NSException *e) { }
     });

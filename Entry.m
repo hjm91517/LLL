@@ -15,10 +15,6 @@
 #import "LLLUiKit.h"
 #import "LLLStealth.h"
 #import "LLLZip.h"
-#import "LLLStealth.h"
-#import "LLLZip.h"
-#import "LLLStealth.h"
-#import "LLLZip.h"
 
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
@@ -222,14 +218,13 @@ static void LLLInit(void) {
             if (LLLFileExists(@"LLL_OFF")) return;
 
             if (LLLIsDuplicateDylib()) {
-                // 只记日志，不退出；但标记一下，注入时跳过记账，避免两份账本互相覆盖
-                gLLLDuplicateLoad = YES;
-                lllLog(@"!! 检测到重复加载的 bbhj online，本次注入不记账");
+                /* 【重复加载修复】设备上同时存在多份 bbhj dylib（不同文件名都会被加载）
+                 * 时，两份 hook/UI 并存会导致：旧 UI 与新 UI 冲突、触摸黑洞回归、
+                 * interpose 链混乱。第一份加载的副本接管一切，本副本主动退出。
+                 * → 请删除 MobileSubstrate/DynamicLibraries 里的旧版本文件，只留一份 */
+                lllLog(@"!! 检测到重复加载的 bbhj online，本副本主动退出，由先加载的副本接管");
+                return;
             }
-
-            LLLStealthInstall();
-
-            LLLStealthInstall();
 
             LLLStealthInstall();
 
