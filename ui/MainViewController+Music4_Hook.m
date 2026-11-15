@@ -9,19 +9,21 @@
 #import <objc/runtime.h>
 #import "MainViewController.h"
 #import "MainViewController+Music4.h"
+#import "MainViewController+MusicUI4.h"
 #import "BaseComponents.h"
 
 typedef void (*LLLViewDidLoadIMP)(id, SEL);
 typedef void (*LLLViewWillAppearIMP)(id, SEL, BOOL);
 
-static LLLViewDidLoadIMP     gOrigDidLoad      = NULL;
-static LLLViewWillAppearIMP  gOrigWillAppear   = NULL;
+static LLLViewDidLoadIMP    gOrigDidLoad    = NULL;
+static LLLViewWillAppearIMP gOrigWillAppear = NULL;
 
 static void LLLSwz_viewDidLoad(id self, SEL _cmd) {
     if (gOrigDidLoad) gOrigDidLoad(self, _cmd);
     @try {
-        if ([self respondsToSelector:@selector(lll4_installMusicPage)]) {
-            [(id)self lll4_installMusicPage];
+        MainViewController *mvc = (MainViewController *)self;
+        if ([mvc respondsToSelector:@selector(lll4_installMusicPage)]) {
+            [mvc lll4_installMusicPage];
         }
     } @catch (NSException *e) {
         lllLog(@"4.0 安装音乐页异常: %@", e);
@@ -31,9 +33,10 @@ static void LLLSwz_viewDidLoad(id self, SEL _cmd) {
 static void LLLSwz_viewWillAppear(id self, SEL _cmd, BOOL animated) {
     if (gOrigWillAppear) gOrigWillAppear(self, _cmd, animated);
     @try {
-        /* 兜底：viewDidLoad 里 playerCard 可能还没建好 */
-        if ([self respondsToSelector:@selector(lll4_installLoginButton)]) {
-            [(id)self lll4_installLoginButton];
+        /* 兜底：viewDidLoad 时 playerCard 可能还没建好 */
+        MainViewController *mvc = (MainViewController *)self;
+        if ([mvc respondsToSelector:@selector(lll4_installLoginButton)]) {
+            [mvc lll4_installLoginButton];
         }
     } @catch (NSException *e) { }
 }
