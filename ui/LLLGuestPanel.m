@@ -5,10 +5,10 @@
 
 #import <UIKit/UIKit.h>
 #import "MainViewController.h"
-#import "MainViewController+Music4.h"        /* lll4_refreshCard */
-#import "MainViewController+MusicUI4.h"      /* 免登录面板自身的方法声明 */
-#import "MainViewController+CloudLists4.h"   /* showLikedSongs */
-#import "LLLCloudLogin.h"                    /* presentLoginChooser */
+#import "MainViewController+GuestPanel4.h"    /* 本分类自己的声明 */
+#import "MainViewController+Music4.h"         /* lll4_refreshCard */
+#import "MainViewController+CloudLists4.h"    /* showLikedSongs */
+#import "LLLCloudLogin.h"                     /* presentLoginChooser */
 #import "LLLGuestMusic.h"
 #import "LLLMusicController.h"
 #import "LLLCloudMusic.h"
@@ -21,7 +21,6 @@ static void (^gGuestClose)(void) = nil;
 
 @implementation MainViewController (GuestPanel4)
 
-/// 第一层：免登录菜单
 - (void)lll4_openGuestMusic {
     __weak typeof(self) w = self;
     LLLShowSheet(@"网易云 · 免登录", [LLLGuestMusic capabilityNote],
