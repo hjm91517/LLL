@@ -1,7 +1,12 @@
 //
 //  LLLMusicIsland.h
 //  灵动岛：收起是胶囊（封面 + 歌名 + 波形），点开是播放面板（进度 + 上一首/播放/下一首）
-//  4.0：封面强制取网易云曲图；控制全部转给 LLLPlayerCore，不再各走一套。
+//
+//  4.0 注意事项：
+//    · 主实现（LLLMusicIsland.m）里**不新增**方法，新增能力全在分类
+//      LLLMusicIsland4 里实现，并通过 LLLIslandCoreBridge 调用。
+//      原因：工程开了 -Werror -Wincomplete-implementation，
+//      在 .h 里声明了却在主 @implementation 里没定义会直接编译失败。
 //
 
 #import <UIKit/UIKit.h>
@@ -32,13 +37,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 重新读一次状态并刷新
 + (void)refresh;
-
-/// 4.0：网易云登录入口（展开态第二行按钮），点击调 handler
-+ (void)setCloudLoginHandler:(nullable void (^)(void))handler;
-/// 登录态变化后刷新按钮文案
-+ (void)refreshCloudButton;
-/// 播放模式键文案刷新
-+ (void)refreshModeButton;
 
 @end
 
