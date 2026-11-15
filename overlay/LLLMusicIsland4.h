@@ -15,7 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// 网易云曲目缺封面时兜底拉一次
 + (void)lll4_ensureCloudArtwork;
 
-/// 岛上「网易云」键的回调（登录面板入口）
+/// 岛上「登录 / 网易云」键的回调
 + (void)lll4_setCloudTapHandler:(nullable void (^)(void))handler;
 
 /// 把「登录 / 模式」两颗键挂到控制行；返回是否成功
@@ -25,6 +25,13 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)lll4_refreshModeButton;
 + (void)lll4_refreshLoginButton;
 
+@end
+
+/// 等价别名，给外部调用方用（语义更清楚）
+@interface LLLMusicIsland (Island4Alias)
++ (void)setCloudLoginHandler:(nullable void (^)(void))handler;
++ (void)refreshCloudButton;
++ (void)refreshModeButton;
 @end
 
 NS_ASSUME_NONNULL_END
