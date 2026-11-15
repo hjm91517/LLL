@@ -1,16 +1,11 @@
 //
-//  ui/MainViewController+Music4.m
+//  ui/MainViewController+Music4.m  — 4.0
 //  4.0 音乐页接线：把表格、卡片、分段控件全部接到 LLLMusicController。
-//
-//  这个分类里的方法会覆盖 3.12 里散在 MainViewController.m / +Features.m 的旧实现：
-//    showMusicTab / musicSourceChanged: / reloadMusicTab / musicCellPlay:
-//    togglePlayPause / nextMusic / prevMusic / switchLoopMode / toggleSpeed
-//  宿主只需在 viewDidLoad 之后调一次 -lll4_installMusicPage。
-//  旧的 musicControlBar 路径已弃用（4.0 只留 playerCard 一套 UI）。
 //
 
 #import "MainViewController+Music4.h"
 #import "MainViewController_Private.h"
+#import "MainViewController+MusicUI4.h"
 #import "LLLMusicController.h"
 #import "LLLPlayerCore.h"
 #import "LLLCloudMusic.h"
@@ -30,10 +25,14 @@ static void *kLLL4Ticker = &kLLL4Ticker;
 #pragma mark - 安装
 
 - (void)lll4_installMusicPage {
+    static dispatch_once_t once;
+    __block BOOL installed = NO;
+    dispatch_once(&once, ^{ installed = YES; });
+    if (!installed) return;
+
     [[LLLMusicController shared] bindHost:self];
     [[LLLIslandCoreBridge shared] install];
 
-    /* 宿主的播放器全部交给内核管，本地旧播放器直接停掉释放 */
     [self lll4_stopLegacyPlayers];
 
     __weak typeof(self) w = self;
@@ -46,6 +45,8 @@ static void *kLLL4Ticker = &kLLL4Ticker;
         if (s) [s openCloudMusic];
     }];
 
+    [self lll4_installLoginButton];
+
     /* 内核变化 → 刷卡片（0.35s 一次足够，别把主线程打满） */
     NSTimer *t = [NSTimer timerWithTimeInterval:0.35 repeats:YES block:^(NSTimer *tm) {
         __strong typeof(w) s = w;
@@ -56,32 +57,24 @@ static void *kLLL4Ticker = &kLLL4Ticker;
     objc_setAssociatedObject(self, kLLL4Ticker, t, OBJC_ASSOCIATION_RETAIN);
     [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
 
-    [NSNotificationCenter.defaultCenter
-     addObserver:self
-        selector:@selector(lll4_dataChanged)
-            name:@"LLLMusicDataDidChange"
-          object:nil];
-    [NSNotificationCenter.defaultCenter
-     addObserver:self
-        selector:@selector(lll4_coreChanged)
-            name:LLLPlayerCoreDidChange
-          object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(lll4_dataChanged)
+                                              name:@"LLLMusicDataDidChange"
+                                            object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(lll4_coreChanged)
+                                              name:LLLPlayerCoreDidChange
+                                            object:nil];
 }
 
 - (void)lll4_stopLegacyPlayers {
-    @try {
-        [self.audioPlayer stop];
-    } @catch (__unused NSException *e) { }
+    @try { [self.audioPlayer stop]; } @catch (__unused NSException *e) { }
     self.audioPlayer = nil;
 
-    @try {
-        [self.videoMusicPlayer pause];
-    } @catch (__unused NSException *e) { }
+    @try { [self.videoMusicPlayer pause]; } @catch (__unused NSException *e) { }
     self.videoMusicPlayer = nil;
 
-    @try {
-        [self.cloudPlayer pause];
-    } @catch (__unused NSException *e) { }
+    @try { [self.cloudPlayer pause]; } @catch (__unused NSException *e) { }
     self.cloudPlayer = nil;
 
     self.isPlaying = NO;
@@ -109,6 +102,11 @@ static void *kLLL4Ticker = &kLLL4Ticker;
     [self switchTo:self.musict hide:@[self.st, self.qt, self.pt, self.pqt] bar:nil];
     [self.musict reloadData];
     [self lll4_refreshCard];
+
+    [self setHeader:@"音乐播放器"
+                sub:[NSString stringWithFormat:@"%ld 首 · %@",
+                     (long)[mc rowCount],
+                     ([mc sourceKind] == LLLMusicSourceKindCloud) ? @"网易云" : @"本地"]];
 }
 
 - (void)lll4_musicSourceChanged:(UISegmentedControl *)seg {
@@ -131,7 +129,7 @@ static void *kLLL4Ticker = &kLLL4Ticker;
 }
 
 - (void)lll4_reloadMusicTab {
-    /* 只刷表格，绝不改 hidden/栏位 —— 老实现就是在这里顺手把页面状态刷歪了 */
+    /* 只刷表格，绝不改 hidden/栏位 —— 老实现就是在这里顺手把页面状态刷歪的 */
     [self.musict reloadData];
     [self lll4_refreshCard];
 }
@@ -139,9 +137,7 @@ static void *kLLL4Ticker = &kLLL4Ticker;
 - (void)lll4_musicCellPlay:(UIButton *)sender {
     NSNumber *idx = objc_getAssociatedObject(sender, "idx");
     if (!idx) return;
-    [[LLLMusicController shared] playRow:idx.integerValue];
-    [self lll4_refreshCard];
-    [self.musict reloadData];
+    [self lll4_didSelectMusicRow:idx.integerValue];
 }
 
 - (void)lll4_didSelectMusicRow:(NSInteger)row {
@@ -152,11 +148,7 @@ static void *kLLL4Ticker = &kLLL4Ticker;
 
 #pragma mark - 卡片按键
 
-- (void)lll4_togglePlayPause {
-    [[LLLMusicController shared] togglePlayPause];
-    [self lll4_refreshCard];
-}
-
+- (void)lll4_togglePlayPause { [[LLLMusicController shared] togglePlayPause]; [self lll4_refreshCard]; }
 - (void)lll4_next { [[LLLMusicController shared] nextTrack]; [self lll4_refreshCard]; }
 - (void)lll4_prev { [[LLLMusicController shared] previousTrack]; [self lll4_refreshCard]; }
 - (void)lll4_toggleMode { [[LLLMusicController shared] toggleMode]; [self lll4_refreshCard]; }
@@ -171,6 +163,7 @@ static void *kLLL4Ticker = &kLLL4Ticker;
 
 - (void)lll4_refreshCard {
     LLLMusicController *mc = [LLLMusicController shared];
+    LLLPlayerCore *core = [LLLPlayerCore shared];
 
     if (self.playerTitle)  self.playerTitle.text  = [mc cardTitle];
     if (self.playerArtist) self.playerArtist.text = [mc cardSubtitle];
@@ -210,22 +203,21 @@ static void *kLLL4Ticker = &kLLL4Ticker;
     }
 
     /* 进度条跟着内核走 */
-    LLLPlayerCore *core = [LLLPlayerCore shared];
     double total = core.duration;
     if (total > 0.5) {
-        float r = (float)(core.elapsed / total);
-        if (!isnan(r)) {
+        double el = [core currentElapsed];
+        float r = (float)(el / total);
+        if (!isnan(r) && isfinite(r)) {
             r = MAX(0, MIN(1, r));
             if (self.playerProgress && !self.playerProgress.isTracking) self.playerProgress.value = r;
             if (self.progressSlider && !self.progressSlider.isTracking) self.progressSlider.value = r;
         }
     }
 
-    /* 封面：内核给了图就用，没给就留占位（不白屏） */
+    /* 封面：内核给了图就用 */
     if (self.playerCover && core.artwork) {
         self.playerCover.image = core.artwork;
         self.playerCover.contentMode = UIViewContentModeScaleAspectFill;
-        self.playerCover.tintColor = nil;
     }
 
     /* 播放中封面转，暂停停 */
@@ -245,9 +237,8 @@ static void *kLLL4Ticker = &kLLL4Ticker;
         }
     }
 
-    if (self.isPlaying != playing) {
-        self.isPlaying = playing;
-    }
+    self.isPlaying = playing;
+    [self lll4_refreshLoginButton];
 }
 
 - (void)lll4_dataChanged {
@@ -260,7 +251,6 @@ static void *kLLL4Ticker = &kLLL4Ticker;
 - (void)lll4_coreChanged {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!self.playerCard.isHidden) [self lll4_refreshCard];
-        /* 内核已经负责 NowPlaying / 灵动岛，这里不再重复推送，避免来回覆盖 */
     });
 }
 
