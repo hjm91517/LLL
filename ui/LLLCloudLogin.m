@@ -6,6 +6,7 @@
 #import "MainViewController+Features.h"
 #import "MainViewController+Music4.h"
 #import "MainViewController+MusicUI4.h"
+#import "MainViewController+GuestPanel4.h"
 #import "MainViewController+CloudLists4.h"
 #import "LLLCloudMusic.h"
 #import "LLLCloudVIP.h"
@@ -24,7 +25,6 @@
 - (void)applyVolume;
 @end
 
-/* 本文件用的分类内部方法：先声明再用，避免隐式声明警告 */
 @interface MainViewController (CloudLoginInternal)
 - (NSArray<NSDictionary *> *)lll4_currentCloudQueue:(NSDictionary *)song;
 @end
@@ -114,7 +114,7 @@ static MainViewController *gCloudHostOwned = nil;
 }
 
 - (void)loginDone:(BOOL)ok msg:(NSString *)msg {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    ￼dispatch_async(dispatch_get_main_queue(), ^{
         [self dismissCloudLoginCard];
         gPhoneField = nil; gCodeField = nil; gSendBtn = nil; gCookieView = nil; gLoginHint = nil;
         NSString *shown = msg.length ? msg : (ok ? @"登录成功" : @"登录失败");
