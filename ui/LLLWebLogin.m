@@ -1,5 +1,7 @@
 //
-//  LLLWebLogin.m
+//  ui/LLLWebLogin.m  — 4.0
+//  官方网页登录：WKWebView 直接开 music.163.com/login，登录成功后收 MUSIC_U。
+//  走站点自己的页面和 Cookie，比接口登录稳，风控由网易自己的前端过。
 //
 
 #import "LLLWebLogin.h"
@@ -11,6 +13,7 @@ static UIWindow *gWin = nil;
 static WKWebView *gWeb = nil;
 static NSTimer *gPoll = nil;
 static void (^gDone)(BOOL, NSString *) = nil;
+static BOOL gFinished = NO;
 
 @interface LLLWebLoginVC : UIViewController
 @end
@@ -29,6 +32,13 @@ static void (^gDone)(BOOL, NSString *) = nil;
     WKWebView *wv = [[WKWebView alloc] initWithFrame:CGRectZero configuration:cfg];
     wv.translatesAutoresizingMaskIntoConstraints = NO;
     wv.backgroundColor = [UIColor colorWithWhite:0.05 alpha:1];
+    wv.opaque = NO;
+    if (@available(iOS 11.0, *)) {
+        /* 网易登录页有自己的自定义 UA 判断，移动端 UA 才能出扫码/手机号入口 */
+        wv.customUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+                             @"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
+                             @"Mobile/15E148 Safari/604.1";
+    }
     [self.view addSubview:wv];
     gWeb = wv;
 
@@ -44,7 +54,7 @@ static void (^gDone)(BOOL, NSString *) = nil;
 
     UILabel *tip = [UILabel new];
     tip.translatesAutoresizingMaskIntoConstraints = NO;
-    tip.text = @"在下面的官方页面登录（扫码 / 手机号 / 密码都行），登录成功会自动返回";
+    tip.text = @"在官方页面登录（扫码 / 手机号都行），登录成功会自动返回";
     tip.textColor = [UIColor colorWithWhite:0.8 alpha:1];
     tip.font = [UIFont systemFontOfSize:12];
     tip.numberOfLines = 2;
@@ -83,13 +93,17 @@ static void (^gDone)(BOOL, NSString *) = nil;
 + (void)presentWithDone:(void (^)(BOOL, NSString *))done {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (gWin) { [gWin makeKeyAndVisible]; return; }
+
         gDone = [done copy];
+        gFinished = NO;
 
         if (@available(iOS 13.0, *)) {
             UIWindowScene *scene = nil;
             for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
                 if ([s isKindOfClass:[UIWindowScene class]] &&
-                    s.activationState == UISceneActivationStateForegroundActive) { scene = (UIWindowScene *)s; break; }
+                    s.activationState == UISceneActivationStateForegroundActive) {
+                    scene = (UIWindowScene *)s; break;
+                }
             }
             gWin = scene ? [[BaseOverlayWindow alloc] initWithWindowScene:scene]
                          : [[BaseOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
@@ -100,43 +114,62 @@ static void (^gDone)(BOOL, NSString *) = nil;
         gWin.rootViewController = [LLLWebLoginVC new];
         gWin.hidden = NO;
 
-        [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
-            if (!gWin) { [t invalidate]; return; }
+        /* 轮询 cookie：只要出现 MUSIC_U 就收工。1 秒一次，比 KVO 稳 */
+        [gPoll invalidate];
+        gPoll = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
+            if (!gWin || gFinished) { [t invalidate]; return; }
             [[WKWebsiteDataStore defaultDataStore].httpCookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+                NSMutableArray<NSHTTPCookie *> *keep = [NSMutableArray array];
+                BOOL hasMusicU = NO;
                 for (NSHTTPCookie *c in cookies) {
-                    if ([c.name isEqualToString:@"MUSIC_U"] && c.value.length > 8 &&
-                        [c.domain containsString:@"163.com"]) {
-                        [t invalidate];
-                        [LLLWebLogin finishWithCookies:cookies];
-                        return;
-                    }
+                    if (![c.domain containsString:@"163.com"]) continue;
+                    [keep addObject:c];
+                    if ([c.name isEqualToString:@"MUSIC_U"] && c.value.length > 8) hasMusicU = YES;
+                }
+                if (hasMusicU && keep.count) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [LLLWebLogin finishWithCookies:keep];
+                    });
                 }
             }];
         }];
+        [[NSRunLoop mainRunLoop] addTimer:gPoll forMode:NSRunLoopCommonModes];
     });
 }
 
 + (void)finishWithCookies:(NSArray<NSHTTPCookie *> *)cookies {
-    NSMutableArray<NSHTTPCookie *> *keep = [NSMutableArray array];
-    for (NSHTTPCookie *c in cookies) {
-        if ([c.domain containsString:@"music.163.com"] || [c.domain containsString:@".163.com"]) {
-            [keep addObject:c];
-        }
-    }
-    [self dismiss];
-    [[LLLCloudMusic shared] adoptCookies:keep completion:^(BOOL ok, NSString *msg) {
-        if (gDone) { gDone(ok, msg); gDone = nil; }
+    if (gFinished) return;
+    gFinished = YES;
+
+    [gPoll invalidate];
+    gPoll = nil;
+
+    __weak typeof(self) w = self;
+    [[LLLCloudMusic shared] adoptCookies:cookies completion:^(BOOL ok, NSString *msg) {
+        void (^cb)(BOOL, NSString *) = gDone;
+        gDone = nil;
+        [w dismiss];
+        if (cb) cb(ok, msg);
     }];
 }
 
 + (void)dismiss {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [gPoll invalidate]; gPoll = nil;
-        gWin.hidden = YES;
-        gWin.rootViewController = nil;
+        [gPoll invalidate];
+        gPoll = nil;
+
+        UIWindow *win = gWin;
         gWin = nil;
         gWeb = nil;
-        if (gDone) { gDone(NO, @"已取消"); gDone = nil; }
+
+        win.hidden = YES;
+        win.rootViewController = nil;
+
+        if (gDone) {
+            void (^cb)(BOOL, NSString *) = gDone;
+            gDone = nil;
+            cb(NO, @"已取消");
+        }
     });
 }
 
