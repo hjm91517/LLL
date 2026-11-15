@@ -246,7 +246,7 @@ static MainViewController *gCloudHostOwned = nil;
         [s loginHint:msg];
         PlayHaptic(ok);
         if (!ok) { gSendBtn.enabled = YES; return; }
-        NSInteger left = 60;
+        __block NSInteger left = 60;
         [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
             left--;
             if (left <= 0) {
