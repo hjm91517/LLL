@@ -1,7 +1,5 @@
 //
 //  ui/LLLWebLogin.m  — 4.0
-//  官方网页登录：WKWebView 直接开 music.163.com/login，登录成功后收 MUSIC_U。
-//  走站点自己的页面和 Cookie，风控由网易自己的前端过。
 //
 
 #import "LLLWebLogin.h"
@@ -14,9 +12,10 @@ static NSTimer *gPoll = nil;
 static void (^gDone)(BOOL, NSString *) = nil;
 static BOOL gFinished = NO;
 
-/* 先声明再用，避免隐式声明 */
+/* 内部方法先声明再用，避免隐式声明 */
 @interface LLLWebLogin (Internal)
 + (void)finishWithCookies:(NSArray<NSHTTPCookie *> *)cookies;
++ (void)hideWindow;
 @end
 
 #pragma mark - VC
@@ -42,7 +41,6 @@ static BOOL gFinished = NO;
     wv.backgroundColor = [UIColor colorWithWhite:0.05 alpha:1];
     wv.opaque = NO;
     if (@available(iOS 11.0, *)) {
-        /* 网易登录页会看 UA，移动端 UA 才出扫码/手机号入口 */
         wv.customUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
                              @"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
                              @"Mobile/15E148 Safari/604.1";
@@ -127,7 +125,6 @@ static BOOL gFinished = NO;
         gWin.rootViewController = [LLLWebLoginVC new];
         gWin.hidden = NO;
 
-        /* 轮询 cookie：出现 MUSIC_U 就收工，1 秒一次比 KVO 稳 */
         [gPoll invalidate];
         gPoll = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
             if (!gWin || gFinished) { [t invalidate]; return; }
@@ -159,7 +156,7 @@ static BOOL gFinished = NO;
     [gPoll invalidate];
     gPoll = nil;
 
-    /* 先把回调取出来，再关窗口；否则 dismiss 会误发一次"已取消" */
+    /* 先把回调取出来再关窗口，否则 dismiss 会误发一次"已取消" */
     void (^cb)(BOOL, NSString *) = gDone;
     gDone = nil;
 
@@ -183,7 +180,7 @@ static BOOL gFinished = NO;
         [gPoll invalidate];
         gPoll = nil;
 
-        [self hideWindow];
+        [LLLWebLogin hideWindow];
 
         void (^cb)(BOOL, NSString *) = gDone;
         gDone = nil;
