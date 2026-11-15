@@ -1,5 +1,5 @@
 //
-//  LLLPlayerCore.m  — 修正版
+//  LLLPlayerCore.m
 //
 
 #import "LLLPlayerCore.h"
@@ -13,9 +13,9 @@
 
 NSString * const LLLPlayerCoreDidChange = @"LLLPlayerCoreDidChange";
 
-static NSString * const kVolKey    = @"LLL.volume";
-static NSString * const kModeKey   = @"LLL.playMode";
-static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
+static NSString * const kVolKey   = @"LLL.volume";
+static NSString * const kModeKey  = @"LLL.playMode";
+static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 
 @interface LLLPlayerCore () <AVAudioPlayerDelegate>
 @property (nonatomic, assign, readwrite) LLLPlaySource source;
@@ -26,6 +26,7 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
 @property (nonatomic, copy, readwrite, nullable) NSString *title;
 @property (nonatomic, copy, readwrite, nullable) NSString *artist;
 @property (nonatomic, strong, readwrite, nullable) UIImage *artwork;
+@property (nonatomic, copy, readwrite, nullable) NSString *artworkURL;
 @property (nonatomic, assign, readwrite) NSTimeInterval duration;
 @property (nonatomic, assign, readwrite) NSTimeInterval elapsed;
 @property (nonatomic, assign, readwrite) NSInteger currentIndex;
@@ -112,17 +113,19 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
         [np stop];
         return;
     }
+    BOOL cloud = (self.source == LLLPlaySourceCloud);
     if (![np.title isEqualToString:(self.title ?: @"")]) {
         [np beginTrack:self.title
                 artist:self.artist
                artwork:self.artwork
+            artworkURL:self.artworkURL
               duration:self.duration
-               elapsed:self.elapsed];
+               elapsed:self.elapsed
+                 cloud:cloud];
     } else {
         [np updateElapsed:self.elapsed duration:self.duration];
-        if (self.artwork) [np updateArtwork:self.artwork];
+        if (self.artwork) [np updateArtwork:self.artwork url:self.artworkURL];
     }
-    /* setPlaying 内部有去重，重复调用无副作用 */
     [np setPlaying:self.playing];
 }
 
@@ -158,6 +161,7 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
         _title = nil;
         _artist = nil;
         _artwork = nil;
+        _artworkURL = nil;
         _duration = 0;
         _elapsed = 0;
         _hasTrack = NO;
@@ -267,6 +271,7 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
     self.title = name;
     self.artist = isVideo ? @"本地视频" : @"本地音乐";
     self.artwork = nil;
+    self.artworkURL = nil;
     self.elapsed = 0;
     self.hasTrack = YES;
 
@@ -326,7 +331,6 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
     [self broadcast];
 }
 
-/// 本地播放器的进度靠系统时钟插值，这里给 NowPlaying 打锚点
 - (void)startHoldTimer {
     [self.holdTimer invalidate];
     __weak typeof(self) w = self;
@@ -354,13 +358,13 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
     self.title    = song[@"name"] ?: @"网易云";
     self.artist   = song[@"artist"] ?: @"网易云音乐";
     self.artwork  = nil;
+    self.artworkURL = [song[@"pic"] isKindOfClass:NSString.class] ? song[@"pic"] : nil;
     self.elapsed  = 0;
     self.duration = [song[@"dur"] doubleValue];
     self.hasTrack = YES;
-    self.playing  = NO;      /* 地址到手才算真正开播 */
+    self.playing  = NO;
 
-    /* 封面：先抢缓存，再异步拉原图，拉到了立刻刷灵动岛圆盘 */
-    NSString *pic = song[@"pic"];
+    NSString *pic = self.artworkURL;
     UIImage *cached = pic.length ? [[LLLCloudVIP shared] cachedArtwork:pic] : nil;
     if (cached) self.artwork = cached;
     [LLLMusicIsland attachVideo:nil];
@@ -376,7 +380,7 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
         [[LLLCloudVIP shared] artworkFor:pic done:^(UIImage *img) {
             __strong typeof(w) s = w;
             if (!s || !img) return;
-            if (s.seekToken != token) return;       /* 已经切歌了，别乱贴图 */
+            if (s.seekToken != token) return;
             s.artwork = img;
             [s broadcast];
         }];
@@ -387,7 +391,6 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
                                      done:^(NSURL *url, NSString *err) {
         __strong typeof(w) s = w;
         if (!s) return;
-        /* 关键：丢了 token 的旧回调直接扔，否则手快切歌会串音 */
         if (s.seekToken != token) return;
 
         if (!url) {
@@ -420,7 +423,6 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
     }];
 }
 
-/// 拿不到音源时别卡在那儿，过几秒自动下一首
 - (void)scheduleAutoSkipAfter:(NSTimeInterval)delay {
     __weak typeof(self) w = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
@@ -493,7 +495,6 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
 
 - (void)togglePlayPause {
     if (!self.hasTrack || self.queueCount == 0) {
-        /* 没播过东西：按当前数据源起播，绝不空手返回 —— 这就是卡片按钮"不管用"的根因 */
         [self playFirstFromCurrentSource];
         return;
     }
@@ -572,7 +573,6 @@ static NSString * const kSpeedKey  = @"LLL.doubleSpeed";
     if (n <= 0) return;
 
     if (self.mode == LLLPlayModeSequential && self.currentIndex + 1 >= n) {
-        /* 顺序模式到头：停住，别偷偷跳回第一首装作循环 */
         [self pause];
         [self seekTo:0];
         return;
