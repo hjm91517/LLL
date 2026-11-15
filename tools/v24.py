@@ -8,8 +8,8 @@
   2. 标记已存在 → 跳过（不重复插入）；
   3. 标记不存在且锚点也找不到 → 直接失败（exit 1）。
 
-以前用 `python3 tools/v24.py || true`，锚点丢了也只是默默跳过，
-编译能过、bug 还在 —— 这种静默失败比直接报错坑人。
+以前是 `python3 tools/v24.py || true`，锚点丢了也只是默默跳过：
+编译能过、bug 还在。这种静默失败比直接报错坑人。
 """
 import os
 import sys
@@ -45,7 +45,7 @@ PATCHES = [
         '            _shuffleMode = (_playMode == LLLPlayModeShuffle);\n'
         '        }\n',
     ),
-    # 2. 音源条一开始就隐藏（启动停在材材质包页）
+    # 2. 音源条一开始就隐藏（启动停在材质包页）
     (
         M,
         "PATCH:4.0-seg-init",
@@ -78,7 +78,7 @@ PATCHES = [
         '    /* PATCH:4.0-seg-settings */\n'
         '    self.musicSrcSeg.hidden = YES;\n',
     ),
-    # 5. 卡片高度 310 → 324（内容实际要 322，歌词行被切了）
+    # 5. 卡片高度 310 -> 324（内容实际要 322，歌词行被切了）
     (
         M,
         "PATCH:4.0-card-h",
@@ -86,7 +86,7 @@ PATCHES = [
         '    if (self.playerHeight) self.playerHeight.constant = 310;\n',
         '    self.playerCard.hidden = NO;\n'
         '    /* PATCH:4.0-card-h */\n'
-        '    // 310 装不下歌词行（内容实际要 322）→ 底部被 clipsToBounds 切掉\n'
+        '    // 310 装不下歌词行（内容实际要 322），底部会被 clipsToBounds 切掉\n'
         '    if (self.playerHeight) self.playerHeight.constant = 324;\n'
         '    self.musicSrcSeg.hidden = NO;\n',
     ),
@@ -100,7 +100,7 @@ PATCHES = [
         '    // 行数一变 contentOffset 还在原地，看着就像跳到了别的页面\n'
         '    [self.musict setContentOffset:CGPointZero animated:NO];\n',
     ),
-    # 7. 播放按钮不再写死宽度（否则叫 UIStackView 无法等宽）
+    # 7. 播放按钮不再写死宽度
     (
         M,
         "PATCH:4.0-btn-width",
@@ -109,9 +109,8 @@ PATCHES = [
         '    [b.heightAnchor constraintEqualToConstant:side].active = YES;\n',
         '    [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];\n'
         '    /* PATCH:4.0-btn-width */\n'
-        '    // 只钉高度，宽度交给 FillEqually；写死 44/58 时四个键共 250pt，
-'
-        '    // 而卡片内容宽只有 174pt → 两侧被 clipsToBounds 裁掉，点击热区也没了\n'
+        '    // 只钉高度，宽度交给 FillEqually。写死 44/58 时四个键共 250pt，\n'
+        '    // 而卡片内容宽只有 174pt，两侧被 clipsToBounds 裁掉，点击热区也没了\n'
         '    [b.heightAnchor constraintEqualToConstant:side].active = YES;\n',
     ),
     # 8. 控制行铺满卡片而不是居中溢出
