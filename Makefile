@@ -44,6 +44,7 @@ bbhj_online_FILES = \
     ui/LLLCloudVIP.m \
     ui/LLLCloudMusic.m \
     ui/LLLCloudLogin.m \
+    ui/LLLCloudLists4.m \
     ui/LLLWebLogin.m \
     ui/LLLLaunchCard.m \
     Entry.m
