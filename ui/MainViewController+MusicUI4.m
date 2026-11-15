@@ -7,17 +7,18 @@
 #import <objc/runtime.h>
 #import "MainViewController.h"
 #import "MainViewController+Music4.h"
+#import "MainViewController+MusicUI4.h"
 #import "MainViewController_Private.h"
+#import "LLLCloudLogin.h"        /* openCloudMusic / presentLoginChooser */
 #import "LLLMusicController.h"
 #import "LLLCloudMusic.h"
-#import "LLLCloudLogin.h"
-#import "LLLGuestMusic.h"
 #import "LLLMusicIsland.h"
+#import "LLLNowPlaying.h"
 #import "BaseComponents.h"
 #import "AppTheme.h"
 
-static void *kLLL4LoginBtn   = &kLLL4LoginBtn;
-static void *kLLL4GuestBtn   = &kLLL4GuestBtn;
+static void *kLLL4LoginBtn = &kLLL4LoginBtn;
+static void *kLLL4GuestBtn = &kLLL4GuestBtn;
 
 @implementation MainViewController (MusicUI4)
 
@@ -30,7 +31,6 @@ static void *kLLL4GuestBtn   = &kLLL4GuestBtn;
     btn.backgroundColor = [UIColor colorWithRed:0.87 green:0.26 blue:0.26 alpha:1.0];
     btn.layer.cornerRadius = 15;
     btn.layer.cornerCurve = kCACornerCurveContinuous;
-    btn.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 14);
     btn.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
     [btn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     [btn setTitle:@"网易云登录" forState:UIControlStateNormal];
@@ -42,7 +42,6 @@ static void *kLLL4GuestBtn   = &kLLL4GuestBtn;
     guest.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
     guest.layer.cornerRadius = 15;
     guest.layer.cornerCurve = kCACornerCurveContinuous;
-    guest.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 12);
     guest.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     [guest setTitleColor:[UIColor colorWithWhite:0.92 alpha:1] forState:UIControlStateNormal];
     [guest setTitle:@"免登录听" forState:UIControlStateNormal];
