@@ -1,5 +1,9 @@
 //
-//  overlay/LLLMusicIsland4.m
+//  overlay/LLLMusicIsland4.m  — 4.0
+//
+//  分类实现，全部方法带 lll4 前缀，不动主 @implementation。
+//  · 岛上的播放/上一首/下一首/模式键 → LLLIslandCoreBridge → LLLPlayerCore
+//  · 网易云封面兜底拉取
 //
 
 #import <UIKit/UIKit.h>
@@ -18,7 +22,7 @@ static void (^gIslandCloudTap)(void) = nil;
 
 @implementation LLLMusicIsland (Island4)
 
-#pragma mark - 事件
+#pragma mark - 事件（供桥接层替换用）
 
 + (void)lll4_onPlay:(id)sender {
     [[LLLIslandCoreBridge shared] togglePlayPause];
@@ -40,10 +44,8 @@ static void (^gIslandCloudTap)(void) = nil;
     [LLLMusicIsland refresh];
 }
 
-/// 岛上的网易云键：登录后点它 = 打开音乐页；没登录 = 弹登录面板
 + (void)lll4_onCloudTap:(id)sender {
-    if (gIslandCloudTap) { gIslandCloudTap(); return; }
-    [[LLLCloudMusic shared] refreshAccountIfNeeded:nil];
+    if (gIslandCloudTap) gIslandCloudTap();
 }
 
 #pragma mark - 安装
@@ -53,10 +55,10 @@ static void (^gIslandCloudTap)(void) = nil;
     dispatch_once(&once, ^{
         @try {
             NSArray<NSArray<NSString *> *> *pairs = @[
-                @[ @"onPlay:",    @"lll4_onPlay:" ],
-                @[ @"onPrev:",    @"lll4_onPrev:" ],
-                @[ @"onNext:",    @"lll4_onNext:" ],
-                @[ @"onModeTap:", @"lll4_onModeTap:" ],
+                @[ @"onPlay:",     @"lll4_onPlay:" ],
+                @[ @"onPrev:",     @"lll4_onPrev:" ],
+                @[ @"onNext:",     @"lll4_onNext:" ],
+                @[ @"onModeTap:",  @"lll4_onModeTap:" ],
                 @[ @"onCloudTap:", @"lll4_onCloudTap:" ],
             ];
             Class meta = object_getClass((id)self);
@@ -116,30 +118,16 @@ static void (^gIslandCloudTap)(void) = nil;
     }];
 }
 
-#pragma mark - 模式文案
+#pragma mark - 网易云键
 
-+ (NSString *)lll4_modeLabel {
-    switch ([LLLPlayerCore shared].mode) {
-        case LLLPlayModeSingleLoop: return @"单曲";
-        case LLLPlayModeShuffle:    return @"随机";
-        default:                    return @"顺序";
-    }
-}
-
-#pragma mark - 对外
-
-+ (void)setCloudLoginHandler:(void (^)(void))handler {
++ (void)lll4_setCloudTapHandler:(void (^)(void))handler {
     gIslandCloudTap = [handler copy];
 }
 
-+ (void)refreshCloudButton {
++ (void)lll4_refreshCloudTitle {
     dispatch_async(dispatch_get_main_queue(), ^{
         [LLLMusicIsland refresh];
     });
-}
-
-+ (void)refreshModeButton {
-    [LLLMusicIsland refresh];
 }
 
 @end
