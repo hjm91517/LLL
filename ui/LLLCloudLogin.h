@@ -2,8 +2,8 @@
 //  ui/LLLCloudLogin.h  — 4.0
 //  网易云入口：四种登录方式 + 队列播放（全部转 LLLPlayerCore）
 //
-//  注意：所有方法都必须在 LLLCloudLogin.m 里有定义。
-//  工程开着 -Werror -Wincomplete-implementation，声明了没实现就编不过。
+//  说明：installNowPlayingBridge 是 3.12 留下的入口，LLLMusicIsland.m 里会调它。
+//  4.0 把它转发到 LLLIslandCoreBridge，声明必须留在这里，否则岛那边编不过。
 //
 
 #import "MainViewController.h"
@@ -15,6 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 常驻宿主：灵动岛等"没有面板"的入口全部走这里
 + (MainViewController *)cloudHost;
 + (void)registerCloudHost:(MainViewController *)vc;
+
+/// 3.12 兼容：命令桥入口（4.0 内部转 LLLIslandCoreBridge）
+- (void)installNowPlayingBridge;
 
 /// 统一入口：未登录 → 弹登录方式选择；已登录 → 弹账号菜单
 - (void)openCloudMusic;
