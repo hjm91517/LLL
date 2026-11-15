@@ -20,8 +20,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)startLoginWithQR:(void (^)(UIImage * _Nullable qr, NSString *status))progress
               completion:(void (^)(BOOL ok, NSString *msg))done;
 
+/// 短信验证码登录（密码登录已被网易关闭：503 ursToken或验证码不存在）
+- (void)requestSMSCode:(NSString *)phone done:(void (^)(BOOL ok, NSString *msg))done;
 - (void)loginWithPhone:(NSString *)phone
-              password:(NSString *)password
+               captcha:(NSString *)captcha
             completion:(void (^)(BOOL ok, NSString *msg))done;
 
 /// rawCookie 形如 "MUSIC_U=xxxx; __csrf=yyyy"

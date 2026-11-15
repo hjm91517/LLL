@@ -21,7 +21,8 @@ static NSArray<NSDictionary *> *gCloudSongs = nil;
 static NSInteger gCloudIndex = -1;
 
 static UITextField *gPhoneField = nil;
-static UITextField *gPwdField = nil;
+static UITextField *gCodeField = nil;
+static UIButton    *gSendBtn = nil;
 static UITextView  *gCookieView = nil;
 static UILabel     *gLoginHint = nil;
 
@@ -76,7 +77,7 @@ static MainViewController *gCloudHostOwned = nil;
     }
 
     LLLShowSheet(@"网易云登录", @"三种方式任选，登录后自动拉「我喜欢的音乐」",
-                 @[ @"扫码登录", @"手机号 + 密码", @"粘贴 Cookie" ], NO, ^(NSInteger idx) {
+                 @[ @"扫码登录", @"手机验证码", @"粘贴 Cookie" ], NO, ^(NSInteger idx) {
         if (idx == 0) [self cloudLoginQR];
         else if (idx == 1) [self cloudLoginPhone];
         else if (idx == 2) [self cloudLoginCookie];
@@ -90,7 +91,7 @@ static MainViewController *gCloudHostOwned = nil;
 - (void)loginDone:(BOOL)ok msg:(NSString *)msg {
     dispatch_async(dispatch_get_main_queue(), ^{
         [self dismissCloudLoginCard];
-        gPhoneField = nil; gPwdField = nil; gCookieView = nil; gLoginHint = nil;
+        gPhoneField = nil; gCodeField = nil; gSendBtn = nil; gCookieView = nil; gLoginHint = nil;
         ShowToast(msg.length ? msg : (ok ? @"登录成功" : @"登录失败"), 2.2, YES, !ok);
         PlayHaptic(ok);
         if (ok) [self showLikedSongs];
@@ -153,13 +154,13 @@ static MainViewController *gCloudHostOwned = nil;
 #pragma mark - 手机号
 
 - (void)cloudLoginPhone {
-    LLLShowCustomCard(320, 420, ^(UIView *card, void (^close)(void)) {
+    LLLShowCustomCard(320, 460, ^(UIView *card, void (^close)(void)) {
         gCloseLoginCard = [close copy];
         CGFloat w = card.bounds.size.width > 1 ? card.bounds.size.width : 320;
-        card.frame = CGRectMake(0, 0, w, 300);
+        card.frame = CGRectMake(0, 0, w, 348);
 
         UILabel *t = [[UILabel alloc] initWithFrame:CGRectMake(16, 18, w - 32, 24)];
-        t.text = @"手机号登录";
+        t.text = @"手机验证码登录";
         t.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
         t.textColor = UIColor.whiteColor;
         t.textAlignment = NSTextAlignmentCenter;
@@ -177,17 +178,27 @@ static MainViewController *gCloudHostOwned = nil;
         gPhoneField.leftViewMode = UITextFieldViewModeAlways;
         [card addSubview:gPhoneField];
 
-        gPwdField = [[UITextField alloc] initWithFrame:CGRectMake(18, 104, w - 36, 42)];
-        gPwdField.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
-        gPwdField.layer.cornerRadius = 10;
-        gPwdField.textColor = UIColor.whiteColor;
-        gPwdField.tintColor = LLLAccentColor();
-        gPwdField.secureTextEntry = YES;
-        gPwdField.placeholder = @"密码";
-        gPwdField.font = [UIFont systemFontOfSize:15];
-        gPwdField.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 42)];
-        gPwdField.leftViewMode = UITextFieldViewModeAlways;
-        [card addSubview:gPwdField];
+        gCodeField = [[UITextField alloc] initWithFrame:CGRectMake(18, 104, w - 36 - 108, 42)];
+        gCodeField.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
+        gCodeField.layer.cornerRadius = 10;
+        gCodeField.textColor = UIColor.whiteColor;
+        gCodeField.tintColor = LLLAccentColor();
+        gCodeField.keyboardType = UIKeyboardTypeNumberPad;
+        gCodeField.placeholder = @"短信验证码";
+        gCodeField.font = [UIFont systemFontOfSize:15];
+        gCodeField.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 42)];
+        gCodeField.leftViewMode = UITextFieldViewModeAlways;
+        [card addSubview:gCodeField];
+
+        gSendBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        gSendBtn.frame = CGRectMake(w - 18 - 100, 104, 100, 42);
+        gSendBtn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.14];
+        gSendBtn.layer.cornerRadius = 10;
+        [gSendBtn setTitle:@"发送验证码" forState:UIControlStateNormal];
+        [gSendBtn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+        gSendBtn.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+        [gSendBtn addTarget:self action:@selector(doSendCode) forControlEvents:UIControlEventTouchUpInside];
+        [card addSubview:gSendBtn];
 
         UIButton *go = [UIButton buttonWithType:UIButtonTypeSystem];
         go.frame = CGRectMake(18, 158, w - 36, 44);
@@ -199,15 +210,16 @@ static MainViewController *gCloudHostOwned = nil;
         [go addTarget:self action:@selector(doPhoneLogin) forControlEvents:UIControlEventTouchUpInside];
         [card addSubview:go];
 
-        gLoginHint = [[UILabel alloc] initWithFrame:CGRectMake(18, 208, w - 36, 18)];
-        gLoginHint.text = @"密码只用于网易云接口，不落盘";
+        gLoginHint = [[UILabel alloc] initWithFrame:CGRectMake(18, 208, w - 36, 32)];
+        gLoginHint.text = @"网易已关闭密码登录，只能收短信验证码";
+        gLoginHint.numberOfLines = 2;
         gLoginHint.font = [UIFont systemFontOfSize:11];
         gLoginHint.textColor = [UIColor colorWithWhite:0.5 alpha:1];
         gLoginHint.textAlignment = NSTextAlignmentCenter;
         [card addSubview:gLoginHint];
 
         UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
-        cancel.frame = CGRectMake(18, 236, w - 36, 40);
+        cancel.frame = CGRectMake(18, 252, w - 36, 40);
         cancel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
         cancel.layer.cornerRadius = 12;
         [cancel setTitle:@"取消" forState:UIControlStateNormal];
@@ -218,18 +230,48 @@ static MainViewController *gCloudHostOwned = nil;
     });
 }
 
-- (void)doPhoneLogin {
-    if (!gPhoneField || !gPwdField) return;
+- (void)doSendCode {
     NSString *phone = gPhoneField.text;
-    NSString *pwd = gPwdField.text;
-    if (phone.length < 6 || pwd.length == 0) {
-        [self loginHint:@"手机号或密码没填完"];
+    if (phone.length < 6) {
+        [self loginHint:@"先把手机号填完"];
+        PlayHaptic(NO);
+        return;
+    }
+    gSendBtn.enabled = NO;
+    [self loginHint:@"发送中…"];
+    __weak typeof(self) w = self;
+    [[LLLCloudMusic shared] requestSMSCode:phone done:^(BOOL ok, NSString *msg) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+        [s loginHint:msg];
+        PlayHaptic(ok);
+        if (!ok) { gSendBtn.enabled = YES; return; }
+        NSInteger left = 60;
+        [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
+            left--;
+            if (left <= 0) {
+                [t invalidate];
+                gSendBtn.enabled = YES;
+                [gSendBtn setTitle:@"发送验证码" forState:UIControlStateNormal];
+            } else {
+                [gSendBtn setTitle:[NSString stringWithFormat:@"%lds", (long)left] forState:UIControlStateNormal];
+            }
+        }];
+    }];
+}
+
+- (void)doPhoneLogin {
+    if (!gPhoneField || !gCodeField) return;
+    NSString *phone = gPhoneField.text;
+    NSString *code = gCodeField.text;
+    if (phone.length < 6 || code.length < 4) {
+        [self loginHint:@"手机号或验证码没填完"];
         PlayHaptic(NO);
         return;
     }
     [self loginHint:@"登录中…"];
     __weak typeof(self) w = self;
-    [[LLLCloudMusic shared] loginWithPhone:phone password:pwd completion:^(BOOL ok, NSString *msg) {
+    [[LLLCloudMusic shared] loginWithPhone:phone captcha:code completion:^(BOOL ok, NSString *msg) {
         __strong typeof(w) s = w;
         if (s) [s loginDone:ok msg:msg];
     }];

@@ -23,6 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)cloudLoginQR;
 - (void)cloudLoginPhone;
 - (void)cloudLoginCookie;
+- (void)doSendCode;
 - (void)doPhoneLogin;
 - (void)doCookieLogin;
 - (void)loginHint:(NSString *)text;

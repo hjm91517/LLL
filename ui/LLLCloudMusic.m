@@ -548,43 +548,74 @@ static UIImage *LLLQRImage(NSString *text, CGFloat side) {
 
 #pragma mark - 手机号 / Cookie
 
+/* 明文表单 POST（验证码登录走这条，eapi/weapi 都要求 ursToken，密码登录已被关闭） */
+- (void)postForm:(NSString *)path body:(NSString *)body done:(void (^)(id json, NSError *err))done {
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@%@", kBase, path]];
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+    [req setValue:kUA forHTTPHeaderField:@"User-Agent"];
+    [req setValue:kBase forHTTPHeaderField:@"Referer"];
+    req.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
+
+    [[_session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        if (err) { if (done) done(nil, err); return; }
+        if (!data.length) { if (done) done(nil, nil); return; }
+        NSError *je = nil;
+        id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&je];
+        if (done) done(obj, je);
+    }] resume];
+}
+
+- (void)requestSMSCode:(NSString *)phone done:(void (^)(BOOL, NSString *))done {
+    NSString *p = [phone stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (p.length < 6) { if (done) done(NO, @"手机号没填完"); return; }
+
+    __weak typeof(self) w = self;
+    [self getJSON:@"/api/sms/captcha/sent"
+           params:@{ @"cellphone" : p, @"ctcode" : @"86" }
+             done:^(id json, NSError *err) {
+        __strong typeof(w) s = w;
+        if (!s) return;
+        NSInteger code = [json isKindOfClass:NSDictionary.class] ? [json[@"code"] integerValue] : -1;
+        NSString *msg = [json isKindOfClass:NSDictionary.class] ? (json[@"message"] ?: json[@"msg"]) : nil;
+        if (err) msg = @"网络错误";
+        BOOL ok = (code == 200);
+        if (done) done(ok, ok ? @"验证码已发送" : (msg.length ? msg : @"发送失败"));
+    }];
+}
+
 - (void)loginWithPhone:(NSString *)phone
-              password:(NSString *)password
+               captcha:(NSString *)captcha
             completion:(void (^)(BOOL, NSString *))done {
     NSString *p = [phone stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (p.length < 6 || password.length == 0) {
-        if (done) done(NO, @"手机号或密码为空");
+    NSString *c = [captcha stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (p.length < 6 || c.length < 4) {
+        if (done) done(NO, @"手机号或验证码没填完");
         return;
     }
 
-    NSDictionary *params = @{
-        @"phone"         : p,
-        @"countrycode"   : @"86",
-        @"password"      : LLLMD5Hex(password),
-        @"rememberLogin" : @"true",
-    };
-
+    NSString *body = [NSString stringWithFormat:@"phone=%@&countrycode=86&captcha=%@&rememberLogin=true",
+                      LLLFormEncode(p), LLLFormEncode(c)];
     __weak typeof(self) w = self;
-    [self postEapi:@"/api/login/cellphone" params:params done:^(id json, NSError *err) {
+    [self postForm:@"/api/login/cellphone" body:body done:^(id json, NSError *err) {
         __strong typeof(w) s = w;
         if (!s) return;
 
         NSInteger code = [json isKindOfClass:NSDictionary.class] ? [json[@"code"] integerValue] : -1;
-        lllLog(@"网易云 eapi 登录 code=%ld msg=%@", (long)code,
-               [json isKindOfClass:NSDictionary.class] ? json[@"message"] : @"");
+        NSString *msg = [json isKindOfClass:NSDictionary.class] ? (json[@"message"] ?: json[@"msg"]) : nil;
+        lllLog(@"网易云 验证码登录 code=%ld msg=%@", (long)code, msg ?: @"");
         if (code != 200) {
-            NSString *msg = [json isKindOfClass:NSDictionary.class] ? json[@"message"] : nil;
-            if (!msg.length && [json isKindOfClass:NSDictionary.class]) msg = json[@"msg"];
             if (err) msg = [NSString stringWithFormat:@"网络错误：%@", err.localizedDescription ?: @"连接失败"];
-            if (done) done(NO, msg.length ? msg : @"登录失败，账号或密码不对");
+            if (!msg.length) msg = @"登录失败";
+            if (done) done(NO, msg);
             return;
         }
-
         [s fetchAccountThen:^(BOOL ok, NSString *m) {
             s.loggedIn = ok && [s hasCookie];
-            if (done) done(ok && s.loggedIn,
-                           ok ? [NSString stringWithFormat:@"登录成功：%@", s.nickname ?: @"网易云用户"]
-                              : (m ?: @"登录失败"));
+            if (done) done(s.loggedIn, s.loggedIn
+                            ? [NSString stringWithFormat:@"登录成功：%@", s.nickname ?: @"网易云用户"]
+                            : (m ?: @"登录失败"));
         }];
     }];
 }
