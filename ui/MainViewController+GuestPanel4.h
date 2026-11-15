@@ -1,10 +1,10 @@
 //
-//  ui/MainViewController+GuestPanel4.h
+//  MainViewController+GuestPanel4.h
 //  免登录面板的声明。实现在 LLLGuestPanel.m 的 (GuestPanel4) 分类里。
-//  声明与实现必须同一分类名，否则 -Wincomplete-implementation 会报错。
 //
 
 #import "MainViewController.h"
+#import "MainViewController+Features.h"   /* showLikedSongs */
 
 NS_ASSUME_NONNULL_BEGIN
 
