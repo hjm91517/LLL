@@ -1,6 +1,5 @@
 //
 //  ui/LLLMusicController.h  — 4.0
-//  音乐页数据/播放中枢：本地与网易云共用一套队列与播放内核。
 //
 
 #import <UIKit/UIKit.h>
@@ -24,20 +23,21 @@ typedef NS_ENUM(NSInteger, LLLMusicSourceKind) {
 - (LLLMusicSourceKind)sourceKind;
 - (void)setSourceKind:(LLLMusicSourceKind)kind;
 
-/// 表格数据源唯一取数入口，越界不可能
 - (NSInteger)rowCount;
 - (nullable NSDictionary *)rowInfoAt:(NSInteger)row;
 
 - (void)playRow:(NSInteger)row;
 
-/// 外部（登录面板/列表弹层）直接灌网易云队列，不动当前播放
 - (void)setCloudQueueDirectly:(NSArray<NSDictionary *> *)songs;
-/// 外部直接播网易云队列里的第 row 首
 - (void)playCloudRowDirectly:(NSInteger)row;
 
 - (void)reloadLocal;
 - (void)reloadCloudLiked;
 - (void)reloadCloudDaily;
+
+/// 把本地/云端队列写回宿主 MVC 的老数组（musicNames/musicPaths/cloudSongs），
+/// 让 3.12 那套 UITableViewDataSource 与内核保持一致，不再错乱。
+- (void)syncHostArrays;
 
 - (void)togglePlayPause;
 - (void)nextTrack;
