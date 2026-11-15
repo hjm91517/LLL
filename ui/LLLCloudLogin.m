@@ -7,6 +7,7 @@
 #import "LLLCloudMusic.h"
 #import "LLLNowPlaying.h"
 #import "LLLMusicIsland.h"
+#import "LLLBrandArt.h"
 #import "LLLUiKit.h"
 #import "BaseComponents.h"
 #import <AVFoundation/AVFoundation.h>
@@ -15,6 +16,7 @@
 @interface MainViewController (LLLCloudPrivate)
 - (void)applyVolume;
 - (void)startProgressTimer;
+- (void)updateMusicUI;
 @end
 
 static void (^gCloseLoginCard)(void) = nil;
@@ -31,6 +33,25 @@ static UILabel     *gLoginHint = nil;
    以前每次 new 一个临时 VC，ARC 立刻回收 → 登录回调全打在 nil 上。 */
 static __weak MainViewController *gCloudHostRef = nil;
 static MainViewController *gCloudHostOwned = nil;
+
+/* 【双路声音修复】以前这里调的是 [s stopMusic]，而 stopMusic 会 updateMusicUI，
+   把刚刚 beginTrack 写进灵动岛的歌名/播放态全抹掉 → 云端一开播岛就空。
+   这里只停本地音源，不碰中央状态。 */
+static void LLLStopLocalSilently(MainViewController *s) {
+    if (!s) return;
+    if (s.audioPlayer) {
+        [s.audioPlayer stop];
+        s.audioPlayer = nil;
+    }
+    if (s.videoMusicPlayer) {
+        [[NSNotificationCenter defaultCenter] removeObserver:s
+                                                        name:AVPlayerItemDidPlayToEndTimeNotification
+                                                      object:s.videoMusicPlayer.currentItem];
+        [s.videoMusicPlayer pause];
+        s.videoMusicPlayer = nil;
+    }
+    [LLLMusicIsland attachVideo:nil];
+}
 
 @implementation MainViewController (CloudLogin)
 
@@ -95,16 +116,16 @@ static MainViewController *gCloudHostOwned = nil;
         [self dismissCloudLoginCard];
         gPhoneField = nil; gCodeField = nil; gSendBtn = nil; gCookieView = nil; gLoginHint = nil;
         NSString *shown = msg.length ? msg : (ok ? @"登录成功" : @"登录失败");
-        if (!ok && ([shown containsString:@"风险"] || [shown containsString:@"风控"])) {
-            shown = [shown stringByAppendingString:@"（改用网页登录）"];
-        }
         ShowToast(shown, 2.6, YES, !ok);
         PlayHaptic(ok);
-        if (ok) [self showLikedSongs];
+        if (ok) {
+            [self updateMusicUI];   // 卡片右上角的键从「登录」变昵称
+            [self showLikedSongs];
+        }
     });
 }
 
-#pragma mark - 网页登录（站点自己过风控，我们只收 cookie）
+#pragma mark - 网页登录（站点自己处理登录，我们只收 cookie）
 
 static WKWebView *gWebLogin = nil;
 
@@ -433,17 +454,11 @@ static WKWebView *gWebLogin = nil;
             if (!s) return;
 
             if (cmd == LLLNPCommandTogglePlay) {
-                if (s.cloudPlayer) {
-                    BOOL playing = (s.cloudPlayer.rate > 0.01);
-                    if (playing) [s.cloudPlayer pause]; else [s.cloudPlayer play];
-                    [[LLLNowPlaying shared] setPlaying:!playing];
-                } else {
-                    [s togglePlayPause];
-                }
+                [s cloudTogglePlayPause];
             } else if (cmd == LLLNPCommandNext) {
-                [s cloudStep:1];
+                [s cloudAdvance:1 auto:NO];
             } else if (cmd == LLLNPCommandPrevious) {
-                [s cloudStep:-1];
+                [s cloudAdvance:-1 auto:NO];
             } else if (cmd == LLLNPCommandSeek) {
                 if (s.cloudPlayer) {
                     [s.cloudPlayer seekToTime:CMTimeMakeWithSeconds(value, 600)];
@@ -459,16 +474,90 @@ static WKWebView *gWebLogin = nil;
                 [[NSUserDefaults standardUserDefaults] setDouble:v forKey:@"LLL.volume"];
                 [s applyVolume];
             }
-        }];
+        }]);
     });
 }
 
-- (void)cloudStep:(NSInteger)delta {
-    if (gCloudSongs.count == 0) return;
+- (BOOL)cloudHasPlayer {
+    return (self.cloudPlayer != nil);
+}
+
+- (void)cloudTogglePlayPause {
+    AVPlayer *p = self.cloudPlayer;
+    if (p) {
+        BOOL playing = self.isPlaying;
+        if (playing) {
+            [p pause];
+            self.isPlaying = NO;
+            [[LLLNowPlaying shared] setPlaying:NO];
+            [LLLMusicIsland updateTitle:[LLLNowPlaying shared].title playing:NO];
+        } else {
+            [p play];
+            self.isPlaying = YES;
+            [[LLLNowPlaying shared] setPlaying:YES];
+            [LLLMusicIsland updateTitle:[LLLNowPlaying shared].title playing:YES];
+        }
+        [self updateMusicUI];
+        return;
+    }
+
     NSInteger n = (NSInteger)gCloudSongs.count;
-    NSInteger base = (gCloudIndex < 0) ? 0 : gCloudIndex;
-    gCloudIndex = (base + delta + n) % n;
-    [self playCloudSong:gCloudSongs[(NSUInteger)gCloudIndex]];
+    if (n == 0) {
+        if (![LLLCloudMusic shared].loggedIn) {
+            ShowToast(@"先登录网易云", 1.6, YES, YES);
+            [self openCloudMusic];
+        } else {
+            ShowToast(@"列表里还没歌，先拉一首", 1.6, YES, YES);
+            [self showLikedSongs];
+        }
+        return;
+    }
+    NSInteger idx = (gCloudIndex >= 0 && gCloudIndex < n) ? gCloudIndex : 0;
+    gCloudIndex = idx;
+    [self playCloudSong:gCloudSongs[(NSUInteger)idx]];
+}
+
+- (void)cloudStep:(NSInteger)delta {
+    [self cloudAdvance:delta auto:NO];
+}
+
+- (void)cloudAdvance:(NSInteger)delta auto:(BOOL)isAuto {
+    NSInteger n = (NSInteger)gCloudSongs.count;
+    if (n == 0) {
+        // 队列空：转到本地播放器，别让按钮看着是死的
+        if (isAuto) return;
+        [self nextMusic];
+        return;
+    }
+
+    NSInteger cur = (gCloudIndex < 0) ? 0 : gCloudIndex;
+    NSInteger nxt = [self lllAdvanceIndex:delta from:cur count:n auto:isAuto];
+
+    if (nxt < 0 || nxt >= n) {
+        /* 顺序模式放到底：停，不再无限鬼打墙 */
+        [self.cloudPlayer pause];
+        self.cloudPlayer = nil;
+        self.isPlaying = NO;
+        [[LLLNowPlaying shared] setPlaying:NO];
+        [LLLMusicIsland updateTitle:nil playing:NO];
+        [self updateMusicUI];
+        return;
+    }
+
+    gCloudIndex = nxt;
+    [self playCloudSong:gCloudSongs[(NSUInteger)nxt]];
+}
+
+- (void)cloudItemDidFinish:(NSNotification *)note {
+    /* 一首放完：单曲循环在 playCloudSong 里自己 seek 重来，走到这儿就是自动切歌 */
+    if (self.playMode == LLLPlayModeRepeatOne) {
+        [self.cloudPlayer seekToTime:kCMTimeZero];
+        [self.cloudPlayer play];
+        self.isPlaying = YES;
+        [[LLLNowPlaying shared] setPlaying:YES];
+        return;
+    }
+    [self cloudAdvance:1 auto:YES];
 }
 
 - (void)playCloudSong:(NSDictionary *)song {
@@ -481,9 +570,10 @@ static WKWebView *gWebLogin = nil;
         if ([gCloudSongs[i][@"id"] isEqual:sid]) { gCloudIndex = (NSInteger)i; break; }
     }
 
+    UIImage *brand = LLLCloudBrandImage();
     [[LLLNowPlaying shared] beginTrack:(song[@"name"] ?: @"网易云")
                                 artist:(song[@"artist"] ?: @"网易云音乐")
-                               artwork:nil
+                               artwork:brand
                               duration:[song[@"dur"] doubleValue]
                                elapsed:0];
 
@@ -501,6 +591,9 @@ static WKWebView *gWebLogin = nil;
                 }
             });
         }];
+    } else if (self.playerCover) {
+        self.playerCover.image = brand;
+        self.playerCover.contentMode = UIViewContentModeScaleAspectFill;
     }
 
     __weak typeof(self) w = self;
@@ -510,20 +603,38 @@ static WKWebView *gWebLogin = nil;
             if (!s) return;
             if (!url) {
                 [[LLLNowPlaying shared] setPlaying:NO];
+                s.isPlaying = NO;
                 ShowToast(err.length ? err : @"拿不到播放地址", 2.2, YES, YES);
+                [s updateMusicUI];
                 return;
             }
 
-            /* 内置播放前先停本地音乐，避免两路声音叠着放 */
-            [s stopMusic];
-            [s.cloudPlayer pause];
+            /* 内置播放前先停本地音乐，避免两路声音叠着放。
+               注意用 LLLStopLocalSilently，不能用 stopMusic（会把刚写好的灵动岛状态抹掉） */
+            LLLStopLocalSilently(s);
+
+            AVPlayer *old = s.cloudPlayer;
+            if (old) {
+                [[NSNotificationCenter defaultCenter] removeObserver:s
+                                                                name:AVPlayerItemDidPlayToEndTimeNotification
+                                                              object:old.currentItem];
+                [old pause];
+            }
             s.cloudPlayer = [AVPlayer playerWithURL:url];
             [s applyVolume];
             [s.cloudPlayer play];
-            [LLLMusicIsland updateTitle:(song[@"name"] ?: @"网易云") playing:YES];
+            s.isPlaying = YES;
+            [[LLLNowPlaying shared] setPlaying:YES];
+
+            [[NSNotificationCenter defaultCenter] addObserver:s
+                                                     selector:@selector(cloudItemDidFinish:)
+                                                         name:AVPlayerItemDidPlayToEndTimeNotification
+                                                       object:s.cloudPlayer.currentItem];
+
             if (s.playerTitle)  s.playerTitle.text  = song[@"name"] ?: @"网易云";
             if (s.playerArtist) s.playerArtist.text = song[@"artist"] ?: @"网易云音乐";
             [s startProgressTimer];
+            [s updateMusicUI];
             ShowToast([NSString stringWithFormat:@"播放: %@", song[@"name"]], 2, YES, NO);
         });
     }];
