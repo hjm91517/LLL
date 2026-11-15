@@ -1,10 +1,9 @@
 //
 //  core/LLLPlayerCore.m  — 4.0
 //
-//  4.0：取流按"登录态"分两条路 ——
+//  取流按登录态分两条路：
 //    已登录 → LLLCloudVIP（eapi 多档，含会员音质）
 //    未登录 → LLLGuestMusic（游客通道，免费曲可用）
-//  这样不登录也能听，登录了能听更多，不用两套 UI。
 //
 
 #import "LLLPlayerCore.h"
@@ -86,12 +85,19 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
 - (void)setupAudioSession {
     @try {
         AVAudioSession *s = AVAudioSession.sharedInstance;
+
+        NSError *catErr = nil;
         [s setCategory:AVAudioSessionCategoryPlayback
                   mode:AVAudioSessionModeDefault
                options:AVAudioSessionCategoryOptionMixWithOthers |
                        AVAudioSessionCategoryOptionDuckOthers
-                 error:nil];
-        [s setActive:YES error:NO];
+                 error:&catErr];
+        if (catErr) lllLog(@"音频会话 category 设置失败: %@", catErr);
+
+        /* 这里必须是 NSError **，传 nil 才对；以前写成 NO 会触发 -Wbool-conversion */
+        NSError *actErr = nil;
+        [s setActive:YES error:&actErr];
+        if (actErr) lllLog(@"音频会话激活失败: %@", actErr);
     } @catch (__unused NSException *e) { }
 }
 
@@ -335,7 +341,7 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
     [[NSRunLoop mainRunLoop] addTimer:self.holdTimer forMode:NSRunLoopCommonModes];
 }
 
-#pragma mark - 网易云播放（登录 / 免登录两条路）
+#pragma mark - 网易云播放（登录 / 免登录）
 
 - (void)playCloudAtIndex:(NSInteger)index {
     if (self.cloudSongs.count == 0) return;
@@ -417,7 +423,7 @@ static NSString * const kSpeedKey = @"LLL.doubleSpeed";
         });
     };
 
-    /* 登录态决定走哪条取流路：登录 → eapi 多档；未登录 → 游客通道 */
+    /* 登录态决定走哪条取流路 */
     if ([LLLCloudMusic shared].loggedIn) {
         [[LLLCloudVIP shared] resolveStreamURL:sid
                                      duration:[song[@"dur"] doubleValue]
