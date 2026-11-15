@@ -1,5 +1,5 @@
 //
-//  LLLMusicController.m
+//  ui/LLLMusicController.m  — 4.0 定稿
 //
 
 #import "LLLMusicController.h"
@@ -8,7 +8,6 @@
 #import "LLLCloudVIP.h"
 #import "LLLNowPlaying.h"
 #import "LLLMusicIsland.h"
-#import "LLLCloudLogin.h"
 #import "BaseComponents.h"
 #import "AppTheme.h"
 
@@ -57,8 +56,9 @@ static NSString * const kSourceKey = @"LLL.musicSource";
     _kind = kind;
     [NSUserDefaults.standardUserDefaults setInteger:kind forKey:kSourceKey];
 
-    /* 切源只换队列，不打断正在放的那首 —— 以前这里顺手 kill 播放器，
-       音频中断回调把 host 的另一条分支带起来，表现就是"跳到别的页面"。 */
+    /* 切源只换队列，不打断正在放的那首。
+       以前这里顺手 kill 播放器，音频中断回调把宿主另一条分支带起来，
+       表现就是"切换到其他页面"。 */
     if (kind == LLLMusicSourceKindCloud) {
         [[LLLPlayerCore shared] setCloudQueueSilently:_cloudSongs];
     } else {
@@ -89,14 +89,9 @@ static NSString * const kSourceKey = @"LLL.musicSource";
         [[LLLPlayerCore shared] setLocalQueueNames:_localNames paths:_localPaths startAt:row];
     }
     [LLLMusicIsland refresh];
-    [LLLMusicIsland setExpanded:NO];
 }
 
-- (void)togglePlayPause {
-    /* 内核自己知道当前是本地还是云，也自己知道队列在哪 —— 卡片键从此不会空转 */
-    [[LLLPlayerCore shared] togglePlayPause];
-}
-
+- (void)togglePlayPause { [[LLLPlayerCore shared] togglePlayPause]; }
 - (void)nextTrack { [[LLLPlayerCore shared] next]; }
 - (void)previousTrack { [[LLLPlayerCore shared] previous]; }
 - (void)toggleMode { [[LLLPlayerCore shared] cycleMode]; }
@@ -117,7 +112,6 @@ static NSString * const kSourceKey = @"LLL.musicSource";
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
         NSMutableArray *names = [NSMutableArray array];
         NSMutableArray *paths = [NSMutableArray array];
-        /* scanMusicFiles 是插件里现成的扫描器，回调在主线程外执行是安全的 */
         scanMusicFiles(^(NSString *name, NSString *path) {
             if (name.length && path.length) {
                 [names addObject:name];
@@ -144,8 +138,10 @@ static NSString * const kSourceKey = @"LLL.musicSource";
 - (void)reloadCloudLiked {
     if (_loadingCloud) return;
     if (![LLLCloudMusic shared].loggedIn) {
+        __weak typeof(self) w = self;
         [[LLLCloudMusic shared] refreshAccountIfNeeded:^(BOOL ok) {
-            if (ok) [self reloadCloudLiked];
+            __strong typeof(w) s = w;
+            if (ok && s) [s reloadCloudLiked];
         }];
         return;
     }
@@ -203,7 +199,8 @@ static NSString * const kSourceKey = @"LLL.musicSource";
     LLLPlayerCore *core = [LLLPlayerCore shared];
     if (core.hasTrack) return core.title ?: @"未在播放";
     NSInteger n = [self rowCount];
-    return n ? @"未在播放" : (_kind == LLLMusicSourceKindCloud ? @"网易云还没拉取" : @"本地目录是空的");
+    if (n > 0) return @"未在播放";
+    return (_kind == LLLMusicSourceKindCloud) ? @"网易云还没拉取" : @"本地目录是空的";
 }
 
 - (NSString *)cardSubtitle {
@@ -214,12 +211,12 @@ static NSString * const kSourceKey = @"LLL.musicSource";
         NSString *artist = core.artist.length ? core.artist : src;
         return [NSString stringWithFormat:@"%@ · %@", artist, src];
     }
-    return (_kind == LLLMusicSourceKindCloud) ? @"点列表里任意一首开始" : @"点列表里任意一首开始";
+    return @"点列表里任意一首开始";
 }
 
 - (NSString *)cardTimeText {
     LLLPlayerCore *core = [LLLPlayerCore shared];
-    NSTimeInterval cur = core.elapsed, total = core.duration;
+    NSTimeInterval cur = [core currentElapsed], total = core.duration;
     if (!isfinite(cur) || cur < 0) cur = 0;
     if (!isfinite(total) || total < 0) total = 0;
     return [NSString stringWithFormat:@"%d:%02d / %d:%02d",
