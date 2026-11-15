@@ -1,9 +1,6 @@
 //
 //  ui/MainViewController+MusicUI4.m
-//  4.0 音乐页 UI 元素：登录按钮 + 分段控件旁边那行
-//
-//  需求原话：「在音乐播放器那个网易云那里增加按键网易云登录」
-//  位置：播放卡片标题右侧（与 3.12 去掉的那个云图标同位，但这是明确的按钮＋文字）
+//  4.0 音乐页的额外入口：网易云登录键 + 免登录键。
 //
 
 #import <UIKit/UIKit.h>
@@ -14,17 +11,20 @@
 #import "LLLMusicController.h"
 #import "LLLCloudMusic.h"
 #import "LLLCloudLogin.h"
+#import "LLLGuestMusic.h"
 #import "LLLMusicIsland.h"
 #import "BaseComponents.h"
 #import "AppTheme.h"
 
-static void *kLLL4LoginBtn = &kLLL4LoginBtn;
+static void *kLLL4LoginBtn   = &kLLL4LoginBtn;
+static void *kLLL4GuestBtn   = &kLLL4GuestBtn;
 
 @implementation MainViewController (MusicUI4)
 
 - (void)lll4_installLoginButton {
     if (objc_getAssociatedObject(self, kLLL4LoginBtn)) return;
 
+    /* —— 登录键 —— */
     UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
     btn.translatesAutoresizingMaskIntoConstraints = NO;
     btn.backgroundColor = [UIColor colorWithRed:0.87 green:0.26 blue:0.26 alpha:1.0];
@@ -36,36 +36,56 @@ static void *kLLL4LoginBtn = &kLLL4LoginBtn;
     [btn setTitle:@"网易云登录" forState:UIControlStateNormal];
     [btn addTarget:self action:@selector(lll4_tapCloudLogin) forControlEvents:UIControlEventTouchUpInside];
 
-    /* 挂在播放卡片上：卡片本身就是音乐页的主视觉，放这里最显眼 */
+    /* —— 免登录键 —— */
+    UIButton *guest = [UIButton buttonWithType:UIButtonTypeSystem];
+    guest.translatesAutoresizingMaskIntoConstraints = NO;
+    guest.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
+    guest.layer.cornerRadius = 15;
+    guest.layer.cornerCurve = kCACornerCurveContinuous;
+    guest.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 12);
+    guest.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    [guest setTitleColor:[UIColor colorWithWhite:0.92 alpha:1] forState:UIControlStateNormal];
+    [guest setTitle:@"免登录听" forState:UIControlStateNormal];
+    [guest addTarget:self action:@selector(lll4_tapGuestMusic) forControlEvents:UIControlEventTouchUpInside];
+
     if (self.playerCard) {
         [self.playerCard addSubview:btn];
+        [self.playerCard addSubview:guest];
         [NSLayoutConstraint activateConstraints:@[
             [btn.trailingAnchor constraintEqualToAnchor:self.playerCard.trailingAnchor constant:-16],
             [btn.topAnchor constraintEqualToAnchor:self.playerCard.topAnchor constant:16],
             [btn.heightAnchor constraintEqualToConstant:30],
-            [btn.widthAnchor constraintGreaterThanOrEqualToConstant:92],
+            [btn.widthAnchor constraintGreaterThanOrEqualToConstant:96],
+
+            [guest.trailingAnchor constraintEqualToAnchor:btn.leadingAnchor constant:-8],
+            [guest.centerYAnchor constraintEqualToAnchor:btn.centerYAnchor],
+            [guest.heightAnchor constraintEqualToConstant:30],
         ]];
-        /* 标题别跟按钮打架 */
         if (self.playerTitle) {
             [NSLayoutConstraint activateConstraints:@[
-                [self.playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:btn.leadingAnchor constant:-8],
+                [self.playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:guest.leadingAnchor constant:-8],
             ]];
         }
     }
 
     objc_setAssociatedObject(self, kLLL4LoginBtn, btn, OBJC_ASSOCIATION_RETAIN);
+    objc_setAssociatedObject(self, kLLL4GuestBtn, guest, OBJC_ASSOCIATION_RETAIN);
 
-    [NSNotificationCenter.defaultCenter
-     addObserver:self
-        selector:@selector(lll4_refreshLoginButton)
-            name:LLLNowPlayingDidChange
-          object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(lll4_refreshLoginButton)
+                                              name:LLLNowPlayingDidChange
+                                            object:nil];
     [self lll4_refreshLoginButton];
 }
 
 - (void)lll4_tapCloudLogin {
     PlayHaptic(YES);
     [self openCloudMusic];
+}
+
+- (void)lll4_tapGuestMusic {
+    PlayHaptic(YES);
+    [self lll4_openGuestMusic];
 }
 
 - (void)lll4_refreshLoginButton {
@@ -76,7 +96,7 @@ static void *kLLL4LoginBtn = &kLLL4LoginBtn;
     if (cm.loggedIn) {
         NSString *nick = cm.nickname.length ? cm.nickname : @"已登录";
         if (nick.length > 8) nick = [[nick substringToIndex:7] stringByAppendingString:@"…"];
-        [btn setTitle:[NSString stringWithFormat:@"%@", nick] forState:UIControlStateNormal];
+        [btn setTitle:nick forState:UIControlStateNormal];
         btn.backgroundColor = [UIColor colorWithWhite:1 alpha:0.14];
         btn.layer.borderWidth = 0.6;
         btn.layer.borderColor = [UIColor colorWithRed:0.87 green:0.26 blue:0.26 alpha:0.9].CGColor;
