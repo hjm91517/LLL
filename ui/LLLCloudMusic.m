@@ -23,7 +23,7 @@ static NSInteger gQRType = 3;
 static NSString * const kBase = @"https://music.163.com";
 static NSString * const kUA   = @"Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
                                 @"AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
-/* 网易按客户端识别：网页 UA 打 /api/login/* 直接 401 无权限访问. ENC。
+/* 网易按客户端识别：网页 UA 打登录类接口直接 401 无权限访问. ENC。
    实测这对 UA+cookie 能拿到正常业务码（503 验证码错误 / 801 等待扫码）。 */
 static NSString * const kClientUA = @"NeteaseMusic/9.1.60.240711141503(8009060);"
                                     @"Dalvik/2.1.0 (Linux; U; Android 11)";
