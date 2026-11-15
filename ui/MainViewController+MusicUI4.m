@@ -1,6 +1,6 @@
 //
 //  ui/MainViewController+MusicUI4.m
-//  4.0 音乐页的额外入口：网易云登录键 + 免登录键。
+//  音乐页入口：网易云登录键 + 免登录键。
 //
 
 #import <UIKit/UIKit.h>
@@ -8,9 +8,9 @@
 #import "MainViewController.h"
 #import "MainViewController+Music4.h"
 #import "MainViewController+MusicUI4.h"
-#import "MainViewController+GuestPanel4.h"   /* lll4_openGuestMusic */
+#import "MainViewController+GuestPanel4.h"
 #import "MainViewController_Private.h"
-#import "LLLCloudLogin.h"                    /* openCloudMusic */
+#import "LLLCloudLogin.h"
 #import "LLLMusicController.h"
 #import "LLLCloudMusic.h"
 #import "LLLMusicIsland.h"
@@ -20,13 +20,28 @@
 
 static void *kLLL4LoginBtn = &kLLL4LoginBtn;
 static void *kLLL4GuestBtn = &kLLL4GuestBtn;
+static void *kLLL4Retry    = &kLLL4Retry;
 
 @implementation MainViewController (MusicUI4)
 
 - (void)lll4_installLoginButton {
     if (objc_getAssociatedObject(self, kLLL4LoginBtn)) return;
 
-    /* —— 登录键 —— */
+    /* playerCard 还没建好就稍后重试，最多 10 次（约 3 秒） */
+    if (!self.playerCard) {
+        NSNumber *n = objc_getAssociatedObject(self, kLLL4Retry) ?: @0;
+        if (n.integerValue >= 10) return;
+        objc_setAssociatedObject(self, kLLL4Retry, @(n.integerValue + 1),
+                                 OBJC_ASSOCIATION_RETAIN);
+        __weak typeof(self) w = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            __strong typeof(w) s = w;
+            if (s) [s lll4_installLoginButton];
+        });
+        return;
+    }
+
     UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
     btn.translatesAutoresizingMaskIntoConstraints = NO;
     btn.backgroundColor = [UIColor colorWithRed:0.87 green:0.26 blue:0.26 alpha:1.0];
@@ -35,9 +50,9 @@ static void *kLLL4GuestBtn = &kLLL4GuestBtn;
     btn.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
     [btn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     [btn setTitle:@"网易云登录" forState:UIControlStateNormal];
-    [btn addTarget:self action:@selector(lll4_tapCloudLogin) forControlEvents:UIControlEventTouchUpInside];
+    [btn addTarget:self action:@selector(lll4_tapCloudLogin)
+   forControlEvents:UIControlEventTouchUpInside];
 
-    /* —— 免登录键 —— */
     UIButton *guest = [UIButton buttonWithType:UIButtonTypeSystem];
     guest.translatesAutoresizingMaskIntoConstraints = NO;
     guest.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
@@ -46,26 +61,26 @@ static void *kLLL4GuestBtn = &kLLL4GuestBtn;
     guest.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     [guest setTitleColor:[UIColor colorWithWhite:0.92 alpha:1] forState:UIControlStateNormal];
     [guest setTitle:@"免登录听" forState:UIControlStateNormal];
-    [guest addTarget:self action:@selector(lll4_tapGuestMusic) forControlEvents:UIControlEventTouchUpInside];
+    [guest addTarget:self action:@selector(lll4_tapGuestMusic)
+     forControlEvents:UIControlEventTouchUpInside];
 
-    if (self.playerCard) {
-        [self.playerCard addSubview:btn];
-        [self.playerCard addSubview:guest];
+    [self.playerCard addSubview:btn];
+    [self.playerCard addSubview:guest];
+    [NSLayoutConstraint activateConstraints:@[
+        [btn.trailingAnchor constraintEqualToAnchor:self.playerCard.trailingAnchor constant:-16],
+        [btn.topAnchor constraintEqualToAnchor:self.playerCard.topAnchor constant:16],
+        [btn.heightAnchor constraintEqualToConstant:30],
+        [btn.widthAnchor constraintGreaterThanOrEqualToConstant:96],
+
+        [guest.trailingAnchor constraintEqualToAnchor:btn.leadingAnchor constant:-8],
+        [guest.centerYAnchor constraintEqualToAnchor:btn.centerYAnchor],
+        [guest.heightAnchor constraintEqualToConstant:30],
+    ]];
+    if (self.playerTitle) {
         [NSLayoutConstraint activateConstraints:@[
-            [btn.trailingAnchor constraintEqualToAnchor:self.playerCard.trailingAnchor constant:-16],
-            [btn.topAnchor constraintEqualToAnchor:self.playerCard.topAnchor constant:16],
-            [btn.heightAnchor constraintEqualToConstant:30],
-            [btn.widthAnchor constraintGreaterThanOrEqualToConstant:96],
-
-            [guest.trailingAnchor constraintEqualToAnchor:btn.leadingAnchor constant:-8],
-            [guest.centerYAnchor constraintEqualToAnchor:btn.centerYAnchor],
-            [guest.heightAnchor constraintEqualToConstant:30],
+            [self.playerTitle.trailingAnchor
+             constraintLessThanOrEqualToAnchor:guest.leadingAnchor constant:-8],
         ]];
-        if (self.playerTitle) {
-            [NSLayoutConstraint activateConstraints:@[
-                [self.playerTitle.trailingAnchor constraintLessThanOrEqualToAnchor:guest.leadingAnchor constant:-8],
-            ]];
-        }
     }
 
     objc_setAssociatedObject(self, kLLL4LoginBtn, btn, OBJC_ASSOCIATION_RETAIN);
