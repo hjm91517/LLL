@@ -1,9 +1,6 @@
 //
 //  ui/LLLUnblockHook.m
-//  把「换源」接到两条取流路径的最后一步：
-//    LLLCloudVIP.resolveStreamURL…  （已登录，eapi 多档都失败时）
-//    LLLGuestMusic.resolveStreamURL…（免登录，游客通道失败时）
-//  用 swizzle 避免改两个大文件。
+//  取流最后一档：eapi / 游客通道都失败时，走换源（内置酷我）。
 //
 
 #import <Foundation/Foundation.h>
@@ -11,6 +8,7 @@
 #import "LLLCloudVIP.h"
 #import "LLLGuestMusic.h"
 #import "LLLUnblockSource.h"
+#import "LLLPlayerCore.h"
 #import "BaseComponents.h"
 
 typedef void (*LLLResolveIMP)(id, SEL, NSNumber *, NSTimeInterval,
@@ -24,8 +22,12 @@ static void LLLSwz_resolveVIP(id self, SEL _cmd, NSNumber *sid, NSTimeInterval d
     if (!gOrigVIP) { if (done) done(nil, @"取流不可用"); return; }
     gOrigVIP(self, _cmd, sid, dur, ^(NSURL *url, NSString *err) {
         if (url) { if (done) done(url, nil); return; }
-        /* eapi 全档失败 → 换源 */
-        [[LLLUnblockSource shared] resolveSongID:sid duration:dur done:done];
+        LLLPlayerCore *c = [LLLPlayerCore shared];
+        [[LLLUnblockSource shared] resolveSongID:sid
+                                            name:c.title
+                                          artist:c.artist
+                                        duration:dur
+                                            done:done];
     });
 }
 
@@ -34,13 +36,18 @@ static void LLLSwz_resolveGuest(id self, SEL _cmd, NSNumber *sid, NSTimeInterval
     if (!gOrigGuest) { if (done) done(nil, @"取流不可用"); return; }
     gOrigGuest(self, _cmd, sid, dur, ^(NSURL *url, NSString *err) {
         if (url) { if (done) done(url, nil); return; }
-        [[LLLUnblockSource shared] resolveSongID:sid duration:dur done:done];
+        LLLPlayerCore *c = [LLLPlayerCore shared];
+        [[LLLUnblockSource shared] resolveSongID:sid
+                                            name:c.title
+                                          artist:c.artist
+                                        duration:dur
+                                            done:done];
     });
 }
 
 @implementation NSObject (LLLUnblockHook)
 
-+ (void)lll_installUnblockHook {
++ (void)load {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         @try {
@@ -61,10 +68,6 @@ static void LLLSwz_resolveGuest(id self, SEL _cmd, NSNumber *sid, NSTimeInterval
             lllLog(@"4.0 换源挂钩异常: %@", e);
         }
     });
-}
-
-+ (void)load {
-    [self lll_installUnblockHook];
 }
 
 @end
