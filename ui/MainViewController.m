@@ -7,6 +7,7 @@
 #import "LLLAnim.h"
 #import "LLLUiKit.h"
 #import "LLLCloudMusic.h"
+#import "LLLCloudLogin.h"
 #import "LLLMusicIsland.h"
 #import "LLLNowPlaying.h"
 #import <objc/runtime.h>
