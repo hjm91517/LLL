@@ -8,6 +8,7 @@
 #import "LLLUiKit.h"
 #import "LLLCloudMusic.h"
 #import "LLLMusicIsland.h"
+#import "LLLNowPlaying.h"
 #import <objc/runtime.h>
 
 #import "MainViewController+SettingsBackground.h"
