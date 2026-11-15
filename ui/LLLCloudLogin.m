@@ -5,6 +5,8 @@
 #import "LLLCloudLogin.h"
 #import "MainViewController+Features.h"
 #import "MainViewController+Music4.h"
+#import "MainViewController+MusicUI4.h"
+#import "MainViewController+CloudLists4.h"
 #import "LLLCloudMusic.h"
 #import "LLLCloudVIP.h"
 #import "LLLCloudRequest.h"
@@ -19,6 +21,11 @@
 
 @interface MainViewController (LLLCloudPrivate)
 - (void)applyVolume;
+@end
+
+/* 本文件用的分类内部方法：先声明再用，避免隐式声明警告 */
+@interface MainViewController (CloudLoginInternal)
+- (NSArray<NSDictionary *> *)lll4_currentCloudQueue:(NSDictionary *)song;
 @end
 
 static void (^gCloseLoginCard)(void) = nil;
@@ -63,7 +70,8 @@ static MainViewController *gCloudHostOwned = nil;
 
     if (cm.loggedIn) {
         NSString *vip = (cm.vipType > 0) ? @"会员" : @"普通";
-        NSString *sub = [NSString stringWithFormat:@"%@ · %@", cm.nickname.length ? cm.nickname : @"已登录", vip];
+        NSString *sub = [NSString stringWithFormat:@"%@ · %@",
+                         cm.nickname.length ? cm.nickname : @"已登录", vip];
         __weak typeof(self) w = self;
         LLLShowSheet(@"网易云音乐", sub,
                      @[ @"我喜欢的音乐", @"每日推荐", @"搜索音乐", @"重新登录", @"退出登录" ], YES,
@@ -87,13 +95,14 @@ static MainViewController *gCloudHostOwned = nil;
 }
 
 - (void)presentLoginChooser {
-    LLLShowSheet(@"网易云登录", @"先网页登录最稳（站点自己过风控），其次扫码",
-                 @[ @"网页登录（推荐）", @"扫码登录", @"手机验证码", @"粘贴 Cookie" ], NO,
+    LLLShowSheet(@"网易云登录", @"网页登录最稳（站点自己过风控）；不想登录可以直接用免登录听",
+                 @[ @"网页登录（推荐）", @"扫码登录", @"手机验证码", @"粘贴 Cookie", @"免登录听" ], NO,
                  ^(NSInteger idx) {
         if (idx == 0) [self cloudLoginWeb];
         else if (idx == 1) [self cloudLoginQR];
         else if (idx == 2) [self cloudLoginPhone];
         else if (idx == 3) [self cloudLoginCookie];
+        else [self lll4_openGuestMusic];
     });
 }
 
@@ -109,8 +118,8 @@ static MainViewController *gCloudHostOwned = nil;
         ShowToast(shown, 2.6, YES, !ok);
         PlayHaptic(ok);
         [LLLMusicIsland refreshCloudButton];
+        [self lll4_refreshLoginButton];
         if (ok) {
-            /* 登录完把队列灌进内核并刷新音乐页 */
             [[LLLMusicController shared] reloadCloudLiked];
             [self showLikedSongs];
         }
@@ -120,16 +129,16 @@ static MainViewController *gCloudHostOwned = nil;
 #pragma mark - 网页登录
 
 - (void)cloudLoginWeb {
-    /* 直接用站点自己的登录页，Cookie 由 WKWebView 收，绕开接口风控 */
+    __weak typeof(self) w = self;
     [LLLWebLogin presentWithDone:^(BOOL ok, NSString *msg) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self loginDone:ok msg:msg];
+            __strong typeof(w) s = w;
+            if (s) [s loginDone:ok msg:msg];
         });
     }];
 }
 
 - (void)doHarvestWebCookies {
-    /* 4.0 走 LLLWebLogin 自动收，这里保留兼容：手动再捞一次 */
     WKWebView *wv = gWebLogin;
     if (!wv) { [self loginDone:NO msg:@"网页没有加载"]; return; }
 
@@ -195,6 +204,7 @@ static MainViewController *gCloudHostOwned = nil;
         [card addSubview:cancel];
     });
 
+    __weak typeof(self) w = self;
     [[LLLCloudMusic shared] startLoginWithQR:^(UIImage *qr, NSString *status) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (qr) qrView.image = qr;
@@ -202,7 +212,8 @@ static MainViewController *gCloudHostOwned = nil;
         });
     } completion:^(BOOL ok, NSString *msg) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self loginDone:ok msg:msg];
+            __strong typeof(w) s = w;
+            if (s) [s loginDone:ok msg:msg];
         });
     }];
 }
@@ -316,7 +327,11 @@ static MainViewController *gCloudHostOwned = nil;
     if (!gPhoneField || !gCodeField) return;
     NSString *phone = gPhoneField.text;
     NSString *code = gCodeField.text;
-    if (phone.length < 6 || code.length < 4) { [self loginHint:@"手机号或验证码没填完"]; PlayHaptic(NO); return; }
+    if (phone.length < 6 || code.length < 4) {
+        [self loginHint:@"手机号或验证码没填完"];
+        PlayHaptic(NO);
+        return;
+    }
     [self loginHint:@"登录中…"];
     __weak typeof(self) w = self;
     [[LLLCloudMusic shared] loginWithPhone:phone captcha:code completion:^(BOOL ok, NSString *msg) {
@@ -409,7 +424,6 @@ static MainViewController *gCloudHostOwned = nil;
     [LLLMusicIsland refresh];
 }
 
-/// 队列优先级：控制器里现成的队列 > 单曲
 - (NSArray<NSDictionary *> *)lll4_currentCloudQueue:(NSDictionary *)song {
     LLLMusicController *mc = [LLLMusicController shared];
     NSInteger n = [mc rowCount];
