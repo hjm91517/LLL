@@ -1,38 +1,41 @@
 //
 //  ui/MainViewController+Music4.m  — 4.0
-//  4.0 音乐页接线：把表格、卡片、分段控件全部接到 LLLMusicController。
+//  音乐页接线：表格、卡片、分段控件全部接到 LLLMusicController / LLLPlayerCore。
 //
 
 #import "MainViewController+Music4.h"
 #import "MainViewController_Private.h"
 #import "MainViewController+MusicUI4.h"
+#import "MainViewController+CloudLists4.h"
 #import "LLLMusicController.h"
 #import "LLLPlayerCore.h"
 #import "LLLCloudMusic.h"
-#import "LLLCloudLogin.h"
+#import "LLLIslandCoreBridge.h"
 #import "LLLMusicIsland.h"
+#import "LLLMusicIsland4.h"
 #import "LLLNowPlaying.h"
 #import "LLLUiKit.h"
 #import "BaseComponents.h"
 #import "AppTheme.h"
 #import <objc/runtime.h>
 #import <AVFoundation/AVFoundation.h>
+#import <math.h>
 
 static void *kLLL4Ticker = &kLLL4Ticker;
+static void *kLLL4Installed = &kLLL4Installed;
 
 @implementation MainViewController (Music4)
 
 #pragma mark - 安装
 
 - (void)lll4_installMusicPage {
-    static dispatch_once_t once;
-    __block BOOL installed = NO;
-    dispatch_once(&once, ^{ installed = YES; });
-    if (!installed) return;
+    if (objc_getAssociatedObject(self, kLLL4Installed)) return;
+    objc_setAssociatedObject(self, kLLL4Installed, @YES, OBJC_ASSOCIATION_RETAIN);
 
     [[LLLMusicController shared] bindHost:self];
     [[LLLIslandCoreBridge shared] install];
 
+    /* 3.12 留下的播放器全部停掉，状态交给内核 */
     [self lll4_stopLegacyPlayers];
 
     __weak typeof(self) w = self;
@@ -40,22 +43,25 @@ static void *kLLL4Ticker = &kLLL4Ticker;
         __strong typeof(w) s = w;
         if (s) [s openCloudMusic];
     }];
-    [LLLMusicIsland setCloudLoginHandler:^{
+    /* 岛上的网易云键走同一个回调 */
+    [LLLMusicIsland4 setCloudTapHandler:^{
         __strong typeof(w) s = w;
         if (s) [s openCloudMusic];
     }];
 
     [self lll4_installLoginButton];
 
-    /* 内核变化 → 刷卡片（0.35s 一次足够，别把主线程打满） */
-    NSTimer *t = [NSTimer timerWithTimeInterval:0.35 repeats:YES block:^(NSTimer *tm) {
-        __strong typeof(w) s = w;
-        if (!s) { [tm invalidate]; return; }
-        if (s.playerCard.isHidden) return;
-        [s lll4_refreshCard];
-    }];
-    objc_setAssociatedObject(self, kLLL4Ticker, t, OBJC_ASSOCIATION_RETAIN);
-    [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
+    /* 内核变化 → 刷卡片 */
+    if (!objc_getAssociatedObject(self, kLLL4Ticker)) {
+        NSTimer *t = [NSTimer timerWithTimeInterval:0.35 repeats:YES block:^(NSTimer *tm) {
+            __strong typeof(w) s = w;
+            if (!s) { [tm invalidate]; return; }
+            if (s.playerCard.isHidden) return;
+            [s lll4_refreshCard];
+        }];
+        objc_setAssociatedObject(self, kLLL4Ticker, t, OBJC_ASSOCIATION_RETAIN);
+        [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
+    }
 
     [NSNotificationCenter.defaultCenter addObserver:self
                                           selector:@selector(lll4_dataChanged)
@@ -83,8 +89,6 @@ static void *kLLL4Ticker = &kLLL4Ticker;
 #pragma mark - 页面
 
 - (void)lll4_showMusicTab {
-    [self setHeader:@"音乐播放器" sub:nil];
-
     /* 卡片展开：高度给足，不然进度条和控制键会被切掉 */
     self.playerCard.hidden = NO;
     if (self.playerHeight) self.playerHeight.constant = 310;
@@ -117,9 +121,11 @@ static void *kLLL4Ticker = &kLLL4Ticker;
 
     if (k == LLLMusicSourceKindCloud) {
         if (![LLLCloudMusic shared].loggedIn) {
-            ShowToast(@"先登录网易云", 1.6, YES, YES);
+            /* 没登录也能用：直接进免登录面板，别再把人挡在门外 */
+            ShowToast(@"未登录 · 可听免费曲目", 1.8, YES, NO);
+            [self lll4_openGuestMusic];
             [self.musict reloadData];
-            [self openCloudMusic];
+            [self lll4_refreshCard];
             return;
         }
         [mc reloadCloudLiked];
@@ -129,7 +135,6 @@ static void *kLLL4Ticker = &kLLL4Ticker;
 }
 
 - (void)lll4_reloadMusicTab {
-    /* 只刷表格，绝不改 hidden/栏位 —— 老实现就是在这里顺手把页面状态刷歪的 */
     [self.musict reloadData];
     [self lll4_refreshCard];
 }
@@ -191,7 +196,9 @@ static void *kLLL4Ticker = &kLLL4Ticker;
                                 forState:UIControlStateNormal];
     }
 
-    if (self.speedBtn) [self.speedBtn setTitle:[mc isDoubleSpeed] ? @"2x" : @"1x" forState:UIControlStateNormal];
+    if (self.speedBtn) {
+        [self.speedBtn setTitle:[mc isDoubleSpeed] ? @"2x" : @"1x" forState:UIControlStateNormal];
+    }
     if (self.modeBtn) {
         NSString *label = @"顺序";
         switch ([mc playMode]) {
@@ -214,7 +221,6 @@ static void *kLLL4Ticker = &kLLL4Ticker;
         }
     }
 
-    /* 封面：内核给了图就用 */
     if (self.playerCover && core.artwork) {
         self.playerCover.image = core.artwork;
         self.playerCover.contentMode = UIViewContentModeScaleAspectFill;
